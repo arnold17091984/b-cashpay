@@ -27,10 +27,47 @@ $old_val = fn(string $k, string $default = ''): string =>
 </div>
 
 <div style="max-width: 640px;">
-<form method="POST" action="/payments" autocomplete="off">
+<form method="POST" action="/payments" autocomplete="off" id="bcp-new-form">
     <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
 
-    <div class="card">
+    <!-- Mode selector -->
+    <div class="card" style="margin-bottom: 16px;">
+        <div class="card__header">
+            <div class="card__title">
+                <i class="bi bi-ui-checks"></i>
+                リンク種別
+            </div>
+        </div>
+        <div class="card__body">
+            <?php $currentMode = $old['mode'] ?? 'fixed'; ?>
+            <div style="display:grid;gap:8px;">
+                <label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1.5px solid var(--border-0);border-radius:8px;cursor:pointer;">
+                    <input type="radio" name="mode" value="fixed" <?= $currentMode === 'fixed' ? 'checked' : '' ?> data-mode-radio>
+                    <span>
+                        <strong>固定リンク（通常）</strong>
+                        <div class="sub" style="font-size:12px;margin-top:2px;">金額・お客様名を指定して発行。1回限り使用。</div>
+                    </span>
+                </label>
+                <label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1.5px solid var(--border-0);border-radius:8px;cursor:pointer;">
+                    <input type="radio" name="mode" value="awaiting_input" <?= $currentMode === 'awaiting_input' ? 'checked' : '' ?> data-mode-radio>
+                    <span>
+                        <strong>金額未確定リンク</strong>
+                        <div class="sub" style="font-size:12px;margin-top:2px;">お客様が決済ページで金額を入力。1回限り。</div>
+                    </span>
+                </label>
+                <label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1.5px solid var(--border-0);border-radius:8px;cursor:pointer;">
+                    <input type="radio" name="mode" value="template" <?= $currentMode === 'template' ? 'checked' : '' ?> data-mode-radio>
+                    <span>
+                        <strong>テンプレート（使いまわし可）</strong>
+                        <div class="sub" style="font-size:12px;margin-top:2px;">同じ URL を複数のお客様に使用可能。訪問ごとに個別の子リンクを自動発行。LINE 公式や看板等に最適。</div>
+                    </span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fixed mode fields -->
+    <div class="card" data-mode-section="fixed">
         <div class="card__header">
             <div class="card__title">
                 <i class="bi bi-currency-yen"></i>
@@ -122,6 +159,44 @@ $old_val = fn(string $k, string $default = ''): string =>
         </div>
     </div>
 
+    <!-- Customer-input mode fields (awaiting_input + template) -->
+    <div class="card" data-mode-section="customer_input" style="display:none;">
+        <div class="card__header">
+            <div class="card__title">
+                <i class="bi bi-sliders"></i>
+                金額範囲・定額プリセット
+            </div>
+        </div>
+        <div class="card__body">
+            <div class="grid-2">
+                <div class="field">
+                    <label class="field__label" for="min_amount">最小金額（円）</label>
+                    <input type="number" id="min_amount" name="min_amount" class="input"
+                           min="1" max="9999999" step="1"
+                           value="<?= $old_val('min_amount', '1000') ?>"
+                           style="font-family:'JetBrains Mono',monospace;font-weight:600;">
+                    <?= $err('min_amount') ?>
+                </div>
+                <div class="field">
+                    <label class="field__label" for="max_amount">最大金額（円）</label>
+                    <input type="number" id="max_amount" name="max_amount" class="input"
+                           min="1" max="9999999" step="1"
+                           value="<?= $old_val('max_amount', '500000') ?>"
+                           style="font-family:'JetBrains Mono',monospace;font-weight:600;">
+                    <?= $err('max_amount') ?>
+                </div>
+            </div>
+
+            <div class="field">
+                <label class="field__label" for="preset_amounts">定額プリセット（任意・カンマ区切り）</label>
+                <input type="text" id="preset_amounts" name="preset_amounts" class="input"
+                       placeholder="10000, 30000, 50000, 100000"
+                       value="<?= $old_val('preset_amounts') ?>">
+                <p class="field__hint">決済ページに表示するクイック選択ボタン。空欄可。</p>
+            </div>
+        </div>
+    </div>
+
     <div class="card" style="margin-top: 16px;">
         <div class="card__header">
             <div class="card__title">
@@ -186,6 +261,48 @@ $old_val = fn(string $k, string $default = ''): string =>
     </div>
 </form>
 </div>
+
+<script>
+(function () {
+    // Toggle between "fixed" and "customer-input" (awaiting_input | template)
+    // field groups based on the selected radio.  Also flips HTML5 required/
+    // disabled so the browser's native validator doesn't yell about hidden
+    // fields.
+    var fixedSection = document.querySelector('[data-mode-section="fixed"]');
+    var customerInputSection = document.querySelector('[data-mode-section="customer_input"]');
+    var fixedRequiredFields = ['amount', 'customer_name', 'customer_kana'];
+
+    function applyMode(mode) {
+        var isFixed = mode === 'fixed';
+        if (fixedSection) {
+            fixedSection.style.display = isFixed ? '' : 'none';
+        }
+        if (customerInputSection) {
+            customerInputSection.style.display = isFixed ? 'none' : '';
+        }
+        fixedRequiredFields.forEach(function (name) {
+            var el = document.querySelector('[name="' + name + '"]');
+            if (!el) return;
+            if (isFixed) {
+                el.setAttribute('required', 'required');
+                el.disabled = false;
+            } else {
+                el.removeAttribute('required');
+                el.disabled = true;
+            }
+        });
+    }
+
+    document.querySelectorAll('[data-mode-radio]').forEach(function (radio) {
+        radio.addEventListener('change', function () {
+            if (radio.checked) applyMode(radio.value);
+        });
+    });
+
+    var checked = document.querySelector('[data-mode-radio]:checked');
+    applyMode(checked ? checked.value : 'fixed');
+})();
+</script>
 
 <style>
 .field__error {

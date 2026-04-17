@@ -164,6 +164,245 @@ class PaymentLinkService
     }
 
     /**
+     * Create an `awaiting_input` link — operator issues without amount,
+     * customer fills it in on the payment page before seeing bank details.
+     *
+     * Writes a row with link_type='awaiting_input', status='awaiting_input',
+     * no amount, and (optionally) a customer kana already pre-filled.  A
+     * reference_number is NOT allocated here — it is assigned atomically
+     * when the customer submits, so unused links do not burn the reference
+     * namespace.
+     *
+     * @param array<string, mixed> $data   Validated input from controller
+     * @param array<string, mixed> $client api_clients row
+     * @return array<string, mixed>
+     */
+    public function createAwaitingInput(array $data, array $client): array
+    {
+        $customerKana = isset($data['customer_kana']) ? trim((string) $data['customer_kana']) : null;
+        if ($customerKana !== null && $customerKana !== '') {
+            $customerKana = mb_convert_kana($customerKana, 'C');
+        } else {
+            $customerKana = null;
+        }
+
+        $bankAccount = $this->selectBankAccount();
+        $minAmount   = isset($data['min_amount']) ? (int) $data['min_amount'] : 1000;
+        $maxAmount   = isset($data['max_amount']) ? (int) $data['max_amount'] : 500_000;
+        $presets     = isset($data['preset_amounts']) && is_array($data['preset_amounts'])
+            ? array_values(array_filter(array_map('intval', $data['preset_amounts']), static fn($v) => $v > 0))
+            : [];
+        $expiryHours = isset($data['expires_hours']) ? (int) $data['expires_hours'] : (int) config('payment.expiry_hours', 72);
+
+        $id    = 'bp_' . generate_ulid();
+        $token = bin2hex(random_bytes(16));
+
+        $this->db->insert('payment_links', [
+            'id'              => $id,
+            'api_client_id'   => $client['id'],
+            'bank_account_id' => $bankAccount['id'],
+            'external_id'     => $data['external_id'] ?? null,
+            'reference_number'=> null,
+            'amount'          => null,
+            'currency'        => 'JPY',
+            'customer_name'   => null,
+            'customer_kana'   => $customerKana,
+            'callback_url'    => $client['callback_url'] ?? null,
+            'status'          => 'awaiting_input',
+            'link_type'       => 'awaiting_input',
+            'min_amount'      => $minAmount,
+            'max_amount'      => $maxAmount,
+            'preset_amounts'  => $presets !== [] ? json_encode($presets) : null,
+            'token'           => $token,
+            'expires_at'      => date('Y-m-d H:i:s', strtotime("+{$expiryHours} hours")),
+            'source'          => $data['source'] ?? 'admin_web',
+            'created_at'      => now_jst(),
+            'updated_at'      => now_jst(),
+        ]);
+
+        return [
+            'id'          => $id,
+            'token'       => $token,
+            'payment_url' => rtrim((string) config('pay_page.url'), '/') . '/p/' . $token,
+        ];
+    }
+
+    /**
+     * Create a reusable `template` link — the same URL can be shared widely
+     * (LINE group, flyer, chat), and every customer visit that submits an
+     * amount spawns an independent child payment_link with its own
+     * reference_number.
+     *
+     * The template row itself carries no amount / reference / customer data;
+     * those live on children.  `expires_at` on the template is set far in
+     * the future (1 year default) so it does not auto-expire like single
+     * links do — operators cancel it manually when done.
+     *
+     * @param array<string, mixed> $data
+     * @param array<string, mixed> $client
+     * @return array<string, mixed>
+     */
+    public function createTemplate(array $data, array $client): array
+    {
+        $bankAccount = $this->selectBankAccount();
+        $minAmount   = isset($data['min_amount']) ? (int) $data['min_amount'] : 1000;
+        $maxAmount   = isset($data['max_amount']) ? (int) $data['max_amount'] : 500_000;
+        $presets     = isset($data['preset_amounts']) && is_array($data['preset_amounts'])
+            ? array_values(array_filter(array_map('intval', $data['preset_amounts']), static fn($v) => $v > 0))
+            : [];
+
+        $id    = 'bp_' . generate_ulid();
+        $token = bin2hex(random_bytes(16));
+
+        $this->db->insert('payment_links', [
+            'id'              => $id,
+            'api_client_id'   => $client['id'],
+            'bank_account_id' => $bankAccount['id'],
+            'reference_number'=> null,
+            'amount'          => null,
+            'currency'        => 'JPY',
+            'customer_name'   => null,
+            'customer_kana'   => null,
+            'callback_url'    => $client['callback_url'] ?? null,
+            'status'          => 'pending',  // template stays 'pending' forever; children carry real status
+            'link_type'       => 'template',
+            'min_amount'      => $minAmount,
+            'max_amount'      => $maxAmount,
+            'preset_amounts'  => $presets !== [] ? json_encode($presets) : null,
+            'token'           => $token,
+            'expires_at'      => date('Y-m-d H:i:s', strtotime('+1 year')),
+            'source'          => $data['source'] ?? 'admin_web',
+            'created_at'      => now_jst(),
+            'updated_at'      => now_jst(),
+        ]);
+
+        return [
+            'id'          => $id,
+            'token'       => $token,
+            'payment_url' => rtrim((string) config('pay_page.url'), '/') . '/p/' . $token,
+        ];
+    }
+
+    /**
+     * Customer submitted amount + kana on a template URL — spawn an
+     * independent child payment_link that behaves like a normal fixed link
+     * from here on.  The template stays live for the next visitor.
+     *
+     * @param array<string, mixed> $template payment_links row (link_type=template)
+     * @return array<string, mixed> child row data including fresh token + reference
+     */
+    public function createChildFromTemplate(array $template, int $amount, ?string $kana): array
+    {
+        return $this->db->transaction(function () use ($template, $amount, $kana) {
+            $referenceNumber = $this->referenceGenerator->generate();
+            $childId    = 'bp_' . generate_ulid();
+            $childToken = bin2hex(random_bytes(16));
+            $expiresAt  = date('Y-m-d H:i:s', strtotime('+72 hours'));
+
+            $this->db->insert('payment_links', [
+                'id'              => $childId,
+                'api_client_id'   => $template['api_client_id'],
+                'bank_account_id' => $template['bank_account_id'],
+                'reference_number'=> $referenceNumber,
+                'amount'          => $amount,
+                'currency'        => 'JPY',
+                'customer_name'   => $kana,  // display name == kana for customer-driven flow
+                'customer_kana'   => $kana,
+                'callback_url'    => $template['callback_url'],
+                'status'          => 'pending',
+                'link_type'       => 'child',
+                'parent_link_id'  => $template['id'],
+                'min_amount'      => null,
+                'max_amount'      => null,
+                'preset_amounts'  => null,
+                'locked_at'       => now_jst(),
+                'token'           => $childToken,
+                'expires_at'      => $expiresAt,
+                'source'          => 'customer_input',
+                'created_at'      => now_jst(),
+                'updated_at'      => now_jst(),
+            ]);
+
+            // Queue a scraper task for this bank account so the freshly-pending
+            // link is polled on the next scrape cycle.
+            $this->ensureScraperTask((int) $template['bank_account_id']);
+
+            return [
+                'id'               => $childId,
+                'token'            => $childToken,
+                'reference_number' => $referenceNumber,
+                'payment_url'      => rtrim((string) config('pay_page.url'), '/') . '/p/' . $childToken,
+            ];
+        });
+    }
+
+    /**
+     * Customer submitted amount + kana on an awaiting_input link — upgrade
+     * the existing row in place to a ready-to-pay 'pending' link.
+     *
+     * Uses an atomic UPDATE with status='awaiting_input' in the WHERE so
+     * two concurrent submits can't both succeed.
+     *
+     * @param array<string, mixed> $row payment_links row
+     */
+    public function finaliseAwaitingInput(array $row, int $amount, ?string $kana): void
+    {
+        $this->db->transaction(function () use ($row, $amount, $kana) {
+            $referenceNumber = $this->referenceGenerator->generate();
+
+            $affected = $this->db->query(
+                'UPDATE payment_links
+                    SET amount = ?,
+                        customer_kana = COALESCE(?, customer_kana),
+                        customer_name = COALESCE(customer_name, ?),
+                        reference_number = ?,
+                        status = ?,
+                        link_type = ?,
+                        locked_at = ?,
+                        updated_at = ?
+                  WHERE id = ? AND status = ?',
+                [
+                    $amount,
+                    $kana,
+                    $kana,
+                    $referenceNumber,
+                    'pending',
+                    'single',
+                    now_jst(),
+                    now_jst(),
+                    $row['id'],
+                    'awaiting_input',
+                ]
+            );
+            if ($affected->rowCount() === 0) {
+                throw new RuntimeException('Link already finalised or cancelled');
+            }
+
+            $this->ensureScraperTask((int) $row['bank_account_id']);
+        });
+    }
+
+    private function ensureScraperTask(int $bankAccountId): void
+    {
+        $existing = $this->db->fetchOne(
+            'SELECT id FROM scraper_tasks
+             WHERE bank_account_id = ? AND status IN (?, ?)
+             LIMIT 1',
+            [$bankAccountId, 'queued', 'running']
+        );
+        if ($existing === null) {
+            $this->db->insert('scraper_tasks', [
+                'bank_account_id' => $bankAccountId,
+                'status'          => 'queued',
+                'next_run_at'     => now_jst(),
+                'run_count'       => 0,
+                'created_at'      => now_jst(),
+                'updated_at'      => now_jst(),
+            ]);
+        }
+    }
+
+    /**
      * Confirm a payment link that has been matched to a deposit.
      * Updates status, fires webhook, and sends Telegram notification.
      *

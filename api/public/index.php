@@ -92,6 +92,13 @@ function dispatch(string $method, string $path): void
         return;
     }
 
+    // ── Payment page — customer amount submit (awaiting_input + template) ─────
+    if ($method === 'POST' && preg_match('#^/p/([A-Za-z0-9]{32})/submit$#', $path, $m)) {
+        $ctrl = new \BCashPay\Controllers\PaymentPageController();
+        $ctrl->submit($m[1]);
+        return;
+    }
+
     // ── Public status poll — rate-limited ─────────────────────────────────────
     if ($method === 'GET' && preg_match('#^/api/v1/pay/([A-Za-z0-9]{32})/status$#', $path, $m)) {
         rateLimitPublic();

@@ -275,7 +275,12 @@ class ScraperWebhookController
         // mb_convert_kana 'as': 全角英数・記号 -> 半角, 全角スペース -> 半角スペース
         $normalizedDepositor = mb_strtoupper(mb_convert_kana($depositorName, 'as'));
 
-        // Stage 1: candidate set — same amount, status=pending, same bank, created <= 14 days ago
+        // Stage 1: candidate set — status=pending, same bank, created <= 14
+        // days ago, and the candidate must have been created at or before the
+        // deposit date (a deposit cannot belong to a payment_link that did
+        // not yet exist when the money arrived — this stops old deposits
+        // that are still in the bank history from being attributed to
+        // newly-created links).
         $candidates = $this->db->fetchAll(
             'SELECT pl.id, pl.reference_number, pl.customer_name,
                     pl.callback_url, pl.amount,
@@ -287,30 +292,37 @@ class ScraperWebhookController
                AND pl.amount = ?
                AND pl.status = ?
                AND pl.created_at >= ?
+               AND pl.created_at <= ?
              ORDER BY pl.created_at DESC',
             [
                 $bankAccountId,
                 $amount,
                 'pending',
                 date('Y-m-d H:i:s', strtotime('-14 days')),
+                // Deposit-side timestamp, defaulting to "now" if unparseable,
+                // plus an end-of-day buffer to absorb bank/timezone skew.
+                date('Y-m-d H:i:s', strtotime($transactionDate) ?: time()),
             ]
         );
 
         $matched = null;
 
+        // Stage 2: STRICT reference-number presence check.  The request's
+        // reference_number must appear verbatim (after full-width→half-width
+        // normalisation) in the depositor-name string.
+        //
+        // We deliberately do NOT fall back to a "single-candidate amount
+        // match" — that behaviour lets past deposits and look-alike
+        // transactions attach themselves to unrelated links.  If no
+        // reference matches, the deposit goes to the unmatched queue and
+        // an operator decides.
         if (!empty($candidates)) {
-            // Stage 2: reference number in normalized depositor name
             foreach ($candidates as $candidate) {
                 $ref = mb_strtoupper(mb_convert_kana((string) $candidate['reference_number'], 'as'));
                 if ($ref !== '' && mb_strpos($normalizedDepositor, $ref) !== false) {
                     $matched = $candidate;
                     break;
                 }
-            }
-
-            // Stage 3: single-candidate fallback
-            if ($matched === null && count($candidates) === 1) {
-                $matched = $candidates[0];
             }
         }
 

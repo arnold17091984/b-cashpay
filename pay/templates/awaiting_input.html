@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<!--
+  B-Pay — Customer Amount Entry Page
+
+  Shown when link_type = 'awaiting_input' or 'template'.  The customer
+  enters the amount they intend to transfer (required) and optionally
+  their depositor kana.  Submitting the form locks the link in and
+  reveals the real bank-transfer instructions.
+
+  Template variables (all pre-escaped by PaymentPageController):
+    TOKEN, SUBMIT_URL, IS_TEMPLATE, BANK_NAME, BRANCH_NAME,
+    ACCOUNT_NUMBER, MIN_AMOUNT, MAX_AMOUNT, PRESET_AMOUNTS_JSON,
+    ERROR (optional), PREV_AMOUNT, PREV_KANA, BRAND_NAME
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#10b981">
+  <title>お振込金額をご入力ください — {{BRAND_NAME}}</title>
+  <link rel="preconnect" href="https://rsms.me">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <style>
+    .bcp-form { max-width: 480px; margin: 0 auto; padding: 20px; }
+    .bcp-form__field { margin-bottom: 20px; }
+    .bcp-form__label { font-size: 14px; font-weight: 600; color: #0f172a; display: block; margin-bottom: 6px; }
+    .bcp-form__hint { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .bcp-form__input {
+      width: 100%; padding: 14px; border: 1.5px solid #e2e8f0; border-radius: 10px;
+      font-size: 18px; font-family: 'JetBrains Mono', monospace;
+      transition: border-color 0.15s;
+    }
+    .bcp-form__input:focus { outline: none; border-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12); }
+    .bcp-form__input--kana { font-family: inherit; font-size: 16px; }
+    .bcp-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; }
+    .bcp-preset {
+      padding: 10px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px;
+      font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 14px;
+      cursor: pointer; transition: all 0.1s;
+    }
+    .bcp-preset:hover { background: #10b981; color: #fff; border-color: #10b981; }
+    .bcp-submit {
+      width: 100%; padding: 16px; background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff; border: none; border-radius: 12px; font-size: 17px; font-weight: 700;
+      cursor: pointer; transition: transform 0.1s;
+    }
+    .bcp-submit:active { transform: scale(0.98); }
+    .bcp-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+    .bcp-error { background: #fef2f2; color: #991b1b; padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+    .bcp-bank-preview { background: #f8fafc; padding: 14px; border-radius: 10px; margin-top: 16px; font-size: 13px; color: #64748b; }
+    .bcp-bank-preview strong { color: #0f172a; }
+  </style>
+</head>
+<body>
+
+<main class="bcp">
+  <nav class="bcp-topbar" aria-label="ヘッダー">
+    <a href="#" class="bcp-topbar__brand" aria-label="{{BRAND_NAME}}">
+      <span class="bcp-topbar__mark" aria-hidden="true"></span>
+      <span class="bcp-topbar__name">{{BRAND_NAME}}</span>
+    </a>
+  </nav>
+
+  <section class="bcp-form">
+    <h1 style="font-size: 22px; margin: 0 0 6px;">お振込金額をご入力ください</h1>
+    <p style="font-size: 13px; color: #64748b; margin: 0 0 20px;">
+      {{TEMPLATE_INTRO}}
+    </p>
+
+    {{ERROR_HTML_RAW}}
+
+    <form method="POST" action="{{SUBMIT_URL}}" id="bcp-amount-form" novalidate>
+      <div class="bcp-form__field">
+        <label class="bcp-form__label" for="amount">
+          お振込金額 <span style="color:#ef4444;">*</span>
+        </label>
+        <input
+          type="number"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          min="{{MIN_AMOUNT}}"
+          max="{{MAX_AMOUNT}}"
+          step="1"
+          name="amount"
+          id="amount"
+          class="bcp-form__input"
+          placeholder="50000"
+          value="{{PREV_AMOUNT}}"
+          required
+          autocomplete="off"
+        >
+        <p class="bcp-form__hint">
+          {{MIN_AMOUNT_FMT}}円 〜 {{MAX_AMOUNT_FMT}}円 の範囲で整数をご入力ください
+        </p>
+        <div class="bcp-presets" id="bcp-presets"></div>
+      </div>
+
+      <div class="bcp-form__field">
+        <label class="bcp-form__label" for="customer_kana">
+          振込依頼人名カナ <span style="color:#94a3b8;font-weight:500;font-size:12px;">(任意)</span>
+        </label>
+        <input
+          type="text"
+          name="customer_kana"
+          id="customer_kana"
+          class="bcp-form__input bcp-form__input--kana"
+          placeholder="ヤマダ タロウ"
+          value="{{PREV_KANA}}"
+          autocomplete="off"
+        >
+        <p class="bcp-form__hint">
+          ご自身の銀行登録名のままで結構です。空欄でも照合は参照番号で行います。
+        </p>
+      </div>
+
+      <button type="submit" class="bcp-submit" id="bcp-submit-btn">
+        次へ進む
+      </button>
+      <p class="bcp-form__hint" style="text-align:center;margin-top:10px;">
+        ご入力後、お振込先情報と参照番号を表示いたします。
+      </p>
+    </form>
+
+    <div class="bcp-bank-preview">
+      <div><strong>お振込先銀行</strong>: {{BANK_NAME}} {{BRANCH_NAME}}</div>
+      <div>口座番号: {{ACCOUNT_NUMBER}} ({{ACCOUNT_TYPE}})</div>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  // Render preset buttons from the JSON payload.
+  var presets = {{PRESET_AMOUNTS_JSON_RAW}};
+  var presetContainer = document.getElementById('bcp-presets');
+  var amountInput = document.getElementById('amount');
+
+  if (Array.isArray(presets) && presets.length > 0 && presetContainer && amountInput) {
+    presets.forEach(function (value) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'bcp-preset';
+      btn.textContent = '¥' + Number(value).toLocaleString('ja-JP');
+      btn.addEventListener('click', function () {
+        amountInput.value = String(value);
+        amountInput.focus();
+      });
+      presetContainer.appendChild(btn);
+    });
+  }
+
+  // Prevent double-submit — disable the button once the form is posted.
+  var form = document.getElementById('bcp-amount-form');
+  var submitBtn = document.getElementById('bcp-submit-btn');
+  if (form && submitBtn) {
+    form.addEventListener('submit', function () {
+      submitBtn.disabled = true;
+      submitBtn.textContent = '処理中…';
+    });
+  }
+})();
+</script>
+
+</body>
+</html>
