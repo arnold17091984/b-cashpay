@@ -10,6 +10,11 @@ $apiRoot   = dirname($adminRoot) . '/api';
 // Load Composer autoloader from admin/vendor (which maps BCashPay\ → api/src/)
 require $adminRoot . '/vendor/autoload.php';
 
+// Use JST consistently — MySQL connections init with time_zone='+09:00', so
+// PHP's date()/time() output must be in the same zone to avoid a 9-hour skew
+// on TIMESTAMP columns (e.g. expires_at on bind tokens and pending intents).
+date_default_timezone_set('Asia/Tokyo');
+
 // Load .env files (admin first, then api fallback)
 load_env($adminRoot . '/.env');
 load_env($apiRoot . '/.env');

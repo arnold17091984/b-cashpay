@@ -49,9 +49,12 @@ return [
 
     'telegram' => [
         'bot_token'        => env('TELEGRAM_BOT_TOKEN', ''),
+        // chat_id accepts a single value OR comma-separated list (backward
+        // compatible).  chat_ids is the explicit list form.
         'chat_id'          => env('TELEGRAM_CHAT_ID', ''),
+        'chat_ids'         => array_values(array_filter(array_map('trim', explode(',', (string) env('TELEGRAM_CHAT_IDS', ''))))),
         'webhook_secret'   => env('TELEGRAM_WEBHOOK_SECRET', ''),
-        'allowed_chat_ids' => array_filter(array_map('trim', explode(',', (string) env('TELEGRAM_ALLOWED_CHAT_IDS', '')))),
+        'allowed_chat_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('TELEGRAM_ALLOWED_CHAT_IDS', ''))))),
     ],
 
     'webhook' => [

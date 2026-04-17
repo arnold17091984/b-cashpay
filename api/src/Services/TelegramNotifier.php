@@ -20,19 +20,31 @@ use RuntimeException;
 class TelegramNotifier
 {
     private string $botToken;
-    private string $chatId;
+    /** @var string[] */
+    private array $chatIds;
     private bool $enabled;
 
     public function __construct(private readonly Database $db)
     {
         $this->botToken = (string) config('telegram.bot_token');
-        $this->chatId   = (string) config('telegram.chat_id');
-        $this->enabled  = $this->botToken !== '' && $this->chatId !== '';
+
+        // Accept either TELEGRAM_CHAT_ID (single or comma-separated) or
+        // TELEGRAM_CHAT_IDS (explicit list).  Broadcasting to multiple chats
+        // lets us run e.g. an ops group + an audit group in parallel without
+        // code changes — just edit .env.
+        $raw = (string) config('telegram.chat_id', '');
+        $list = (array) config('telegram.chat_ids', []);
+        if (count($list) === 0 && $raw !== '') {
+            $list = array_map('trim', explode(',', $raw));
+        }
+        $this->chatIds = array_values(array_filter($list, static fn($v) => (string) $v !== ''));
+        $this->enabled = $this->botToken !== '' && count($this->chatIds) > 0;
     }
 
     /**
-     * Send a raw HTML-formatted message.
-     * Returns true on success, false on any failure (no exception thrown).
+     * Send a raw HTML-formatted message to every configured chat.
+     * Returns true when ALL chats accept the message; false if any fails
+     * (failures are logged per-chat but do not short-circuit the loop).
      */
     public function send(string $message, ?string $paymentLinkId = null): bool
     {
@@ -40,12 +52,36 @@ class TelegramNotifier
             return false;
         }
 
+        $allOk = true;
+        foreach ($this->chatIds as $chatId) {
+            $success = $this->sendOne($chatId, $message);
+            $allOk = $allOk && $success;
+
+            // Persist audit log — best effort, never throw
+            try {
+                $this->db->insert('telegram_logs', [
+                    'payment_link_id' => $paymentLinkId,
+                    'chat_id'         => $chatId,
+                    'message'         => $message,
+                    'sent_at'         => $success ? now_jst() : null,
+                    'created_at'      => now_jst(),
+                ]);
+            } catch (\Throwable) {
+                // Logging failure must not affect the API response
+            }
+        }
+
+        return $allOk;
+    }
+
+    private function sendOne(string $chatId, string $message): bool
+    {
         $context = stream_context_create([
             'http' => [
                 'method'  => 'POST',
                 'header'  => "Content-Type: application/json\r\n",
                 'content' => json_encode([
-                    'chat_id'                  => $this->chatId,
+                    'chat_id'                  => $chatId,
                     'text'                     => $message,
                     'parse_mode'               => 'HTML',
                     'disable_web_page_preview' => true,
@@ -55,24 +91,8 @@ class TelegramNotifier
             ],
         ]);
 
-        $url    = "https://api.telegram.org/bot{$this->botToken}/sendMessage";
-        $result = @file_get_contents($url, false, $context);
-        $success = $result !== false;
-
-        // Persist audit log — best effort, never throw
-        try {
-            $this->db->insert('telegram_logs', [
-                'payment_link_id' => $paymentLinkId,
-                'chat_id'         => $this->chatId,
-                'message'         => $message,
-                'sent_at'         => $success ? now_jst() : null,
-                'created_at'      => now_jst(),
-            ]);
-        } catch (\Throwable) {
-            // Logging failure must not affect the API response
-        }
-
-        return $success;
+        $url = "https://api.telegram.org/bot{$this->botToken}/sendMessage";
+        return @file_get_contents($url, false, $context) !== false;
     }
 
     /**
