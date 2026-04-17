@@ -10,7 +10,14 @@ Flow:
     1. Navigate to the login page.
     2. Fill ユーザーID + パスワード, click ログイン.
     3. Navigate directly to the deposit history URL (入出金明細).
-    4. Parse the transaction table.
+    4. Primary extraction path — download the bank's CSV export and parse it.
+       Rakuten Business caps the in-page table at the 50 most recent entries,
+       so table-scraping alone loses older deposits the moment a busy tenant
+       posts more than 50 transactions in one interval.  The CSV contains the
+       full history in a stable Shift_JIS format, so we use it whenever the
+       download button is reachable.
+    5. Fallback — if the CSV button is missing or the download fails, fall
+       back to parsing the on-page HTML table (legacy behaviour).
 
 Credentials stored in bank_accounts.scrape_credentials_json:
     {
@@ -27,15 +34,26 @@ Notes on selectors:
 from __future__ import annotations
 
 import asyncio
+import csv
 import hashlib
+import io
 import logging
+import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from playwright.async_api import Page, Locator, TimeoutError as PlaywrightTimeout
 
 from ..engine.base_adapter import BankAdapter, RawTransaction
+
+
+# Where Playwright saves CSV downloads before we parse them. Overridable so
+# deployments on read-only rootfs can redirect to a writable volume.
+CSV_DOWNLOAD_DIR = Path(
+    os.environ.get('SCRAPER_CSV_DOWNLOAD_DIR', '/tmp/bcashpay-scraper-csv')
+)
 
 
 log = logging.getLogger('bcashpay_scraper.adapters.rakuten')
@@ -174,7 +192,133 @@ class RakutenBusinessAdapter(BankAdapter):
         log.info(f'[{self.bank_name}] transactions page ready, URL: {page.url}')
 
     async def extract_transactions(self, page: Page) -> List[RawTransaction]:
-        """Parse deposit rows from the transaction table.
+        """Extract deposit rows.
+
+        Primary path: download Rakuten's CSV export (complete history, stable
+        format).  Fallback: parse the on-page HTML table (capped at ~50 rows).
+
+        Row-level failures never abort the scan; the worst case is a single
+        malformed row being skipped with a warning.
+        """
+        csv_txns = await self._extract_via_csv(page)
+        if csv_txns is not None:
+            log.info(
+                f'[{self.bank_name}] extracted {len(csv_txns)} deposit transactions via CSV'
+            )
+            return csv_txns
+
+        log.warning(
+            f'[{self.bank_name}] CSV download unavailable, falling back to table parse '
+            f'(capped at ~50 rows — older deposits may be missed)'
+        )
+        return await self._extract_via_table(page)
+
+    async def _extract_via_csv(self, page: Page) -> Optional[List[RawTransaction]]:
+        """Try the CSV-download path.
+
+        Returns ``None`` when the CSV button is not reachable or the download
+        itself fails — the caller then falls back to table parsing.  Returns
+        an empty list when the CSV downloaded cleanly but held no deposits.
+        """
+        download_btn = await self._find_first_visible(page, [
+            "input[value*='ダウンロード']",
+            "button:has-text('ダウンロード')",
+            "a:has-text('ダウンロード')",
+            "input[type='submit'][value*='CSV']",
+            "a:has-text('CSV')",
+        ])
+        if download_btn is None:
+            return None
+
+        CSV_DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+        try:
+            async with page.expect_download(timeout=30_000) as download_info:
+                await download_btn.click()
+            download = await download_info.value
+            csv_path = CSV_DOWNLOAD_DIR / download.suggested_filename
+            await download.save_as(str(csv_path))
+            log.info(
+                f'[{self.bank_name}] CSV downloaded: {csv_path.name} '
+                f'({csv_path.stat().st_size} bytes)'
+            )
+        except Exception as exc:  # noqa: BLE001 — any failure triggers fallback
+            log.warning(f'[{self.bank_name}] CSV download failed: {exc}')
+            return None
+
+        return self._parse_csv_file(csv_path)
+
+    def _parse_csv_file(self, csv_path: Path) -> List[RawTransaction]:
+        """Parse a Rakuten Bank CSV into RawTransactions.
+
+        Rakuten CSV columns (legacy 楽天銀行フォーマット):
+            取引日, 入出金内容, 入出金（円）, 残高（円）
+
+        Incoming amounts are positive; withdrawals negative — we keep only
+        positive rows (deposits).  Encoding is usually Shift_JIS but we try
+        several to be safe.
+        """
+        results: List[RawTransaction] = []
+
+        content = None
+        for encoding in ('shift_jis', 'cp932', 'utf-8-sig', 'utf-8'):
+            try:
+                content = csv_path.read_text(encoding=encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        if content is None:
+            log.error(f'[{self.bank_name}] CSV encoding not recognised: {csv_path}')
+            return results
+
+        reader = csv.reader(io.StringIO(content))
+        rows = list(reader)
+        if not rows:
+            return results
+
+        # Find the header row; data starts on the next row.
+        header_idx = 0
+        for i, row in enumerate(rows):
+            if any('取引日' in cell for cell in row):
+                header_idx = i
+                break
+
+        skipped = 0
+        for idx, row in enumerate(rows[header_idx + 1:]):
+            if len(row) < 3:
+                continue
+
+            date_str = row[0].strip().strip('"')
+            description = row[1].strip().strip('"')
+            amount_str = row[2].strip().strip('"').replace(',', '')
+
+            if not date_str or not amount_str:
+                continue
+
+            try:
+                amount = int(amount_str)
+            except ValueError:
+                skipped += 1
+                continue
+
+            # Deposits only — negative means withdrawal.
+            if amount <= 0:
+                continue
+
+            results.append(RawTransaction(
+                payment_id=self._make_payment_id(date_str, description, amount),
+                amount=amount,
+                date=self._parse_date(date_str),
+                depositor_name=description,
+                memo='',
+            ))
+
+        if skipped:
+            log.debug(f'[{self.bank_name}] CSV skipped {skipped} unparseable rows')
+        return results
+
+    async def _extract_via_table(self, page: Page) -> List[RawTransaction]:
+        """Parse deposit rows from the on-page transaction table (fallback).
 
         Expected column layout (common Rakuten Bank format):
             col 0 : 日付       e.g. "2026/04/16"  (sometimes with year header)
@@ -183,7 +327,8 @@ class RakutenBusinessAdapter(BankAdapter):
             col 3 : 出金金額   empty for deposit rows
             col 4 : 残高       ignored
 
-        If the layout differs, adjust the index constants below.
+        The table view is capped at ~50 rows by Rakuten, so this path only
+        sees the most recent deposits.  Prefer the CSV path when available.
         """
         results: List[RawTransaction] = []
 
@@ -230,7 +375,7 @@ class RakutenBusinessAdapter(BankAdapter):
             except Exception as e:  # noqa: BLE001 — row-level failure must not stop scan
                 log.warning(f'[{self.bank_name}] row {i} parse failed: {e}')
 
-        log.info(f'[{self.bank_name}] extracted {len(results)} deposit transactions')
+        log.info(f'[{self.bank_name}] extracted {len(results)} deposit transactions via table')
         return results
 
     async def logout(self, page: Page) -> None:
