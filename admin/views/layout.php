@@ -23,6 +23,7 @@ $navItems = [
     '/banks'    => ['bi-bank',         '銀行口座',       'Banks'],
     '/clients'  => ['bi-key',          'API クライアント', 'Clients'],
     '/scraper'  => ['bi-activity',     'スクレイパー',    'Scraper'],
+    '/settings/telegram' => ['bi-telegram', 'Telegram設定', 'Telegram'],
 ];
 ?>
 

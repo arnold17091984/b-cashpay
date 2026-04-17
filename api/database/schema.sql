@@ -78,6 +78,10 @@ CREATE TABLE IF NOT EXISTS `payment_links` (
     `expires_at` TIMESTAMP NOT NULL COMMENT 'When this payment link expires',
     `confirmed_at` TIMESTAMP NULL DEFAULT NULL,
     `cancelled_at` TIMESTAMP NULL DEFAULT NULL,
+    `source` VARCHAR(32) NOT NULL DEFAULT 'api' COMMENT 'Origin of the link: api, admin_web, telegram',
+    `issued_by_admin_id` BIGINT UNSIGNED DEFAULT NULL COMMENT 'admin_users.id when human-issued',
+    `issued_by_telegram_user_id` BIGINT DEFAULT NULL COMMENT 'Telegram user_id when chat-issued',
+    `issued_by_telegram_message_id` BIGINT DEFAULT NULL COMMENT 'Original Telegram message_id for audit trail',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -171,7 +175,9 @@ CREATE TABLE IF NOT EXISTS `telegram_logs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── Admin Users ─────────────────────────────────────────────
--- Admin dashboard login accounts.
+-- Admin dashboard login accounts.  Telegram columns bind a chat user_id to
+-- an admin account so chat-originated commands carry the admin's identity
+-- and the authorization caps attached to it.
 CREATE TABLE IF NOT EXISTS `admin_users` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `username` VARCHAR(100) NOT NULL,
@@ -181,8 +187,76 @@ CREATE TABLE IF NOT EXISTS `admin_users` (
     `role` ENUM('admin','operator') NOT NULL DEFAULT 'operator',
     `is_active` TINYINT(1) NOT NULL DEFAULT 1,
     `last_login_at` TIMESTAMP NULL DEFAULT NULL,
+    `telegram_user_id` BIGINT DEFAULT NULL COMMENT 'Bound Telegram numeric user_id',
+    `telegram_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Allow this user to issue links via chat',
+    `per_link_cap` BIGINT NOT NULL DEFAULT 500000 COMMENT 'Hard cap per chat-issued link (JPY)',
+    `daily_amount_cap` BIGINT NOT NULL DEFAULT 3000000 COMMENT 'Hard cap per 24h rolling window (JPY)',
+    `default_bank_account_id` BIGINT DEFAULT NULL COMMENT 'Default bank account for chat-issued links',
+    `default_api_client_id` BIGINT DEFAULT NULL COMMENT 'Default api client for chat-issued links',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_admin_username` (`username`)
+    UNIQUE KEY `uk_admin_username` (`username`),
+    UNIQUE KEY `uk_admin_telegram_user` (`telegram_user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Telegram Bind Tokens ────────────────────────────────────
+-- Single-use tokens issued from the admin dashboard and redeemed by an
+-- operator via `/bind <token>` in the Telegram group.  Expires in 15 min.
+CREATE TABLE IF NOT EXISTS `telegram_bind_tokens` (
+    `token` VARCHAR(64) NOT NULL,
+    `admin_user_id` BIGINT UNSIGNED NOT NULL,
+    `expires_at` TIMESTAMP NOT NULL,
+    `consumed_at` TIMESTAMP NULL DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`token`),
+    KEY `idx_admin_user_id` (`admin_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Telegram Updates ────────────────────────────────────────
+-- Idempotency log — every Telegram update we process lands here keyed by
+-- its update_id so bot restarts / Telegram retries cannot create duplicate
+-- payment links.  INSERT IGNORE on the unique key is the gate.
+CREATE TABLE IF NOT EXISTS `telegram_updates` (
+    `update_id` BIGINT NOT NULL,
+    `chat_id` BIGINT DEFAULT NULL,
+    `user_id` BIGINT DEFAULT NULL,
+    `message_id` BIGINT DEFAULT NULL,
+    `kind` VARCHAR(32) NOT NULL DEFAULT '',
+    `payload` TEXT NOT NULL,
+    `processed_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`update_id`),
+    KEY `idx_chat_user` (`chat_id`, `user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Telegram Pending Intents ────────────────────────────────
+-- A `/new` command creates a pending intent that lives until the operator
+-- taps "✓ 発行" on the confirmation card (or 5 minutes pass).  Nonce is
+-- embedded in the inline keyboard callback_data.
+CREATE TABLE IF NOT EXISTS `telegram_pending_intents` (
+    `nonce` VARCHAR(32) NOT NULL,
+    `admin_user_id` BIGINT UNSIGNED NOT NULL,
+    `chat_id` BIGINT NOT NULL,
+    `message_id` BIGINT NOT NULL COMMENT 'message_id of the confirmation card we sent',
+    `intent_json` TEXT NOT NULL,
+    `expires_at` TIMESTAMP NOT NULL,
+    `consumed_at` TIMESTAMP NULL DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`nonce`),
+    KEY `idx_admin_user_id` (`admin_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── App Settings ────────────────────────────────────────────
+-- Singleton key/value for feature flags (telegram_bot_enabled, etc.).
+-- Backed by the database so admins can flip flags from the UI without SSH.
+CREATE TABLE IF NOT EXISTS `app_settings` (
+    `setting_key` VARCHAR(64) NOT NULL,
+    `setting_value` VARCHAR(255) NOT NULL,
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Default: bot disabled until admin explicitly turns it on.
+INSERT INTO `app_settings` (`setting_key`, `setting_value`)
+VALUES ('telegram_bot_enabled', '0')
+ON DUPLICATE KEY UPDATE `setting_key` = `setting_key`;

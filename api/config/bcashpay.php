@@ -48,8 +48,10 @@ return [
     ],
 
     'telegram' => [
-        'bot_token' => env('TELEGRAM_BOT_TOKEN', ''),
-        'chat_id'   => env('TELEGRAM_CHAT_ID', ''),
+        'bot_token'        => env('TELEGRAM_BOT_TOKEN', ''),
+        'chat_id'          => env('TELEGRAM_CHAT_ID', ''),
+        'webhook_secret'   => env('TELEGRAM_WEBHOOK_SECRET', ''),
+        'allowed_chat_ids' => array_filter(array_map('trim', explode(',', (string) env('TELEGRAM_ALLOWED_CHAT_IDS', '')))),
     ],
 
     'webhook' => [

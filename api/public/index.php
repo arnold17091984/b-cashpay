@@ -100,6 +100,15 @@ function dispatch(string $method, string $path): void
         return;
     }
 
+    // ── Telegram webhook — secret-token auth (NOT HMAC) ───────────────────────
+    // Telegram cannot compute our HMAC, so this route ships with its own
+    // `X-Telegram-Bot-Api-Secret-Token` verification inside the controller.
+    // It must be matched BEFORE the generic /api/internal/ block below.
+    if ($method === 'POST' && $path === '/api/internal/telegram/webhook') {
+        (new \BCashPay\Controllers\TelegramWebhookController())->handle();
+        return;
+    }
+
     // ── Internal scraper routes — HMAC auth ───────────────────────────────────
     if (str_starts_with($path, '/api/internal/')) {
         \BCashPay\Middleware\HmacAuth::authenticate();

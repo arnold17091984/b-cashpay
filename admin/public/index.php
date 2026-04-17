@@ -43,6 +43,7 @@ use BCashPay\Admin\Controllers\BankAccountController;
 use BCashPay\Admin\Controllers\DepositController;
 use BCashPay\Admin\Controllers\ApiClientController;
 use BCashPay\Admin\Controllers\ScraperController;
+use BCashPay\Admin\Controllers\TelegramSettingsController;
 use BCashPay\Database;
 
 View::setViewsDir($adminRoot . '/views');
@@ -100,6 +101,13 @@ $router->post('/clients/{id}/delete',  fn(string $id) => $clientCtrl->delete((in
 $scraperCtrl = new ScraperController($auth, $db);
 $router->get('/scraper',                   [$scraperCtrl, 'index']);
 $router->post('/scraper/{id}/run-now',     fn(string $id) => $scraperCtrl->runNow((int) $id));
+
+// Telegram settings (chat-issuance feature)
+$tgSettingsCtrl = new TelegramSettingsController($auth, $db);
+$router->get('/settings/telegram',          [$tgSettingsCtrl, 'index']);
+$router->post('/settings/telegram/toggle',  [$tgSettingsCtrl, 'toggle']);
+$router->post('/settings/telegram/bind',    [$tgSettingsCtrl, 'issueBindToken']);
+$router->post('/settings/telegram/unbind',  [$tgSettingsCtrl, 'unbind']);
 
 // ── Dispatch ─────────────────────────────────────────────────────────────────
 
