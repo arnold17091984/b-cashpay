@@ -68,6 +68,8 @@ $router->get('/', [$dashCtrl, 'index']);
 // Payment links
 $payCtrl = new PaymentLinkController($auth, $db);
 $router->get('/payments',                      [$payCtrl, 'index']);
+$router->get('/payments/new',                  [$payCtrl, 'create']);
+$router->post('/payments',                     [$payCtrl, 'store']);
 $router->get('/payments/{id}',                 [$payCtrl, 'show']);
 $router->post('/payments/{id}/cancel',         [$payCtrl, 'cancel']);
 $router->post('/payments/{id}/match',          [$payCtrl, 'manualMatch']);

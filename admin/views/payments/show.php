@@ -4,8 +4,162 @@ use BCashPay\Admin\View;
 $csrf = Auth::csrfToken();
 $canCancel = $link['status'] === 'pending';
 $canMatch  = $link['status'] === 'pending' && $deposit === null;
-$paymentUrl = rtrim($_SERVER['HTTP_HOST'] ?? '', '/') . '/pay/' . htmlspecialchars($link['reference_number'], ENT_QUOTES, 'UTF-8');
+
+// Public payment page URL (what the customer opens)
+// API runs on port 8000 by convention; admin on 8001. Adjust API base URL via env if needed.
+$apiBase = rtrim((string) (getenv('B_PAY_API_BASE_URL') ?: 'http://localhost:8000'), '/');
+$paymentUrl = $apiBase . '/p/' . $link['token'];
+$justCreated = isset($_GET['created']) && $_GET['created'] === '1';
 ?>
+
+<?php if ($justCreated): ?>
+<div class="link-callout">
+    <div class="link-callout__badge">
+        <i class="bi bi-check-circle-fill"></i>
+        決済リンクを発行しました
+    </div>
+    <p class="link-callout__hint">
+        下記 URL をお客様にお送りください。<strong><?= htmlspecialchars($link['customer_name'] ?? '', ENT_QUOTES, 'UTF-8') ?> 様</strong> への振込案内として機能します。
+    </p>
+    <div class="link-callout__url">
+        <input
+            type="text"
+            id="bp-created-url"
+            readonly
+            value="<?= htmlspecialchars($paymentUrl, ENT_QUOTES, 'UTF-8') ?>"
+        >
+        <button type="button" class="btn btn--primary" onclick="bpCopyUrl()" id="bp-copy-url-btn">
+            <i class="bi bi-clipboard"></i>
+            URL をコピー
+        </button>
+        <a href="<?= htmlspecialchars($paymentUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="btn btn--secondary">
+            <i class="bi bi-box-arrow-up-right"></i>
+            プレビュー
+        </a>
+    </div>
+    <div class="link-callout__share">
+        <span class="link-callout__share-label">クイック共有:</span>
+        <a href="mailto:?subject=<?= rawurlencode('お振込みのご案内') ?>&body=<?= rawurlencode("以下のリンクからお振込みをお願いいたします:\n\n" . $paymentUrl) ?>" class="link-callout__share-btn">
+            <i class="bi bi-envelope"></i> メール
+        </a>
+        <a href="https://social-plugins.line.me/lineit/share?url=<?= rawurlencode($paymentUrl) ?>" target="_blank" rel="noopener" class="link-callout__share-btn">
+            <i class="bi bi-chat-dots"></i> LINE
+        </a>
+        <button type="button" class="link-callout__share-btn" onclick="bpShareNative()">
+            <i class="bi bi-share"></i> その他
+        </button>
+    </div>
+</div>
+
+<style>
+.link-callout {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(5, 150, 105, 0.04));
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    border-radius: var(--r-lg);
+    padding: 20px 24px;
+    margin-bottom: 20px;
+}
+.link-callout__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--success);
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+}
+.link-callout__hint {
+    font-size: 13px;
+    color: var(--fg-1);
+    margin: 0 0 14px;
+}
+.link-callout__hint strong { color: var(--fg-0); }
+.link-callout__url {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    flex-wrap: wrap;
+}
+.link-callout__url input {
+    flex: 1;
+    min-width: 280px;
+    padding: 10px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    background: var(--bg-1);
+    border: 1px solid var(--border-1);
+    border-radius: var(--r-md);
+    letter-spacing: 0.01em;
+}
+.link-callout__url input:focus { outline: none; border-color: var(--accent); }
+.link-callout__share {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    font-size: 12px;
+    flex-wrap: wrap;
+}
+.link-callout__share-label { color: var(--fg-3); }
+.link-callout__share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 10px;
+    border: 1px solid var(--border-1);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--fg-1);
+    background: var(--bg-2);
+    text-decoration: none;
+    transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    cursor: pointer;
+    font-family: inherit;
+}
+.link-callout__share-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-subtle);
+}
+</style>
+<script>
+function bpCopyUrl() {
+    const input = document.getElementById('bp-created-url');
+    const btn = document.getElementById('bp-copy-url-btn');
+    input.select();
+    input.setSelectionRange(0, 99999);
+    const copy = (s) => {
+        if (navigator.clipboard) return navigator.clipboard.writeText(s);
+        return new Promise((res) => { document.execCommand('copy'); res(); });
+    };
+    copy(input.value).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check-lg"></i>コピー完了';
+        btn.style.background = 'var(--success)';
+        btn.style.borderColor = 'var(--success)';
+        setTimeout(() => {
+            btn.innerHTML = orig;
+            btn.style.background = '';
+            btn.style.borderColor = '';
+        }, 1800);
+    });
+}
+function bpShareNative() {
+    const url = document.getElementById('bp-created-url').value;
+    if (navigator.share) {
+        navigator.share({
+            title: 'お振込みのご案内',
+            text: '以下のリンクからお振込みをお願いいたします。',
+            url: url
+        }).catch(() => {});
+    } else {
+        bpCopyUrl();
+    }
+}
+</script>
+<?php endif; ?>
 
 <!-- Page Header -->
 <div class="page-header">

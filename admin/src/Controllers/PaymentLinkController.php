@@ -131,6 +131,197 @@ class PaymentLinkController
         ]);
     }
 
+    /**
+     * GET /payments/new — show form to create a new payment link.
+     */
+    public function create(): void
+    {
+        $this->auth->requireAuth();
+
+        // Pre-fetch active API clients and bank accounts for the form dropdowns
+        $clients = $this->db->fetchAll(
+            "SELECT id, name FROM api_clients WHERE is_active = 1 ORDER BY id ASC"
+        );
+        $banks = $this->db->fetchAll(
+            "SELECT id, bank_name, branch_name, account_number
+             FROM bank_accounts
+             WHERE is_active = 1
+             ORDER BY id ASC"
+        );
+
+        if (empty($banks)) {
+            View::setFlash('error', 'アクティブな銀行口座がありません。先に銀行口座を登録してください。');
+            header('Location: /banks/new');
+            exit;
+        }
+        if (empty($clients)) {
+            View::setFlash('error', 'API クライアントが存在しません。先に作成してください。');
+            header('Location: /clients/new');
+            exit;
+        }
+
+        View::render('payments/new', [
+            'title'       => '決済リンクを新規作成',
+            'clients'     => $clients,
+            'banks'       => $banks,
+            'old'         => $_SESSION['_old_input'] ?? [],
+            'errors'      => $_SESSION['_errors'] ?? [],
+            'csrf'        => Auth::csrfToken(),
+            'currentUser' => $this->auth->user(),
+        ]);
+
+        unset($_SESSION['_old_input'], $_SESSION['_errors']);
+    }
+
+    /**
+     * POST /payments — create the payment link.
+     */
+    public function store(): void
+    {
+        $this->auth->requireAuth();
+        Auth::validateCsrf();
+
+        // Collect input
+        $amount       = (int) ($_POST['amount'] ?? 0);
+        $customerName = trim((string) ($_POST['customer_name'] ?? ''));
+        $customerKana = trim((string) ($_POST['customer_kana'] ?? ''));
+        $customerEmail= trim((string) ($_POST['customer_email'] ?? ''));
+        $externalId   = trim((string) ($_POST['external_id'] ?? ''));
+        $clientId     = (int) ($_POST['api_client_id'] ?? 0);
+        $bankId       = (int) ($_POST['bank_account_id'] ?? 0);
+        $expiresHours = max(1, min(720, (int) ($_POST['expires_hours'] ?? 72)));
+
+        // Validate
+        $errors = [];
+        if ($amount <= 0) {
+            $errors['amount'] = '金額は 1 円以上で入力してください。';
+        }
+        if ($customerName === '') {
+            $errors['customer_name'] = '顧客名は必須です。';
+        }
+        if ($customerKana === '') {
+            $errors['customer_kana'] = '振込依頼人名（カナ）は必須です。';
+        } elseif (!preg_match('/^[\p{Katakana}\p{Hiragana}ー\s　A-Za-z0-9]+$/u', $customerKana)) {
+            $errors['customer_kana'] = 'カタカナ（または半角英数字）のみ入力してください。';
+        }
+        if ($customerEmail !== '' && !filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
+            $errors['customer_email'] = 'メールアドレスの形式が正しくありません。';
+        }
+        if ($clientId <= 0) {
+            $errors['api_client_id'] = 'API クライアントを選択してください。';
+        }
+        if ($bankId <= 0) {
+            $errors['bank_account_id'] = '振込先銀行口座を選択してください。';
+        }
+
+        if ($errors) {
+            $_SESSION['_old_input'] = $_POST;
+            $_SESSION['_errors'] = $errors;
+            header('Location: /payments/new');
+            exit;
+        }
+
+        // Normalize hiragana → katakana
+        $customerKana = mb_convert_kana($customerKana, 'C');
+
+        // Verify client and bank exist
+        $client = $this->db->fetchOne(
+            "SELECT id, callback_url FROM api_clients WHERE id = ? AND is_active = 1 LIMIT 1",
+            [$clientId]
+        );
+        $bank = $this->db->fetchOne(
+            "SELECT id FROM bank_accounts WHERE id = ? AND is_active = 1 LIMIT 1",
+            [$bankId]
+        );
+        if ($client === null || $bank === null) {
+            View::setFlash('error', '選択した API クライアントまたは銀行口座が無効です。');
+            header('Location: /payments/new');
+            exit;
+        }
+
+        // Generate unique reference number (7-digit numeric)
+        $reference = $this->generateReferenceNumber();
+        $token     = bin2hex(random_bytes(16));
+        $id        = 'bp_' . $this->generateUlid();
+        $expiresAt = date('Y-m-d H:i:s', time() + $expiresHours * 3600);
+        $now       = date('Y-m-d H:i:s');
+
+        // Insert payment link
+        $this->db->query(
+            "INSERT INTO payment_links
+                (id, api_client_id, bank_account_id, external_id, reference_number,
+                 amount, currency, customer_name, customer_kana, customer_email,
+                 callback_url, status, token, expires_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'JPY', ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
+            [
+                $id, $clientId, $bankId,
+                $externalId !== '' ? $externalId : null,
+                $reference, $amount,
+                $customerName, $customerKana,
+                $customerEmail !== '' ? $customerEmail : null,
+                $client['callback_url'] ?? null,
+                $token, $expiresAt, $now, $now,
+            ]
+        );
+
+        // Ensure a scraper task is queued for this bank
+        $existingTask = $this->db->fetchOne(
+            "SELECT id FROM scraper_tasks
+             WHERE bank_account_id = ? AND status IN ('queued', 'running')
+             LIMIT 1",
+            [$bankId]
+        );
+        if ($existingTask === null) {
+            $this->db->query(
+                "INSERT INTO scraper_tasks
+                    (bank_account_id, status, next_run_at, run_count, created_at, updated_at)
+                 VALUES (?, 'queued', ?, 0, ?, ?)",
+                [$bankId, $now, $now, $now]
+            );
+        }
+
+        View::setFlash('success', '決済リンクを作成しました。下記のリンクをお客様にお送りください。');
+        header("Location: /payments/{$id}?created=1");
+        exit;
+    }
+
+    /**
+     * Generate a unique 7-digit numeric reference number.
+     */
+    private function generateReferenceNumber(): string
+    {
+        for ($i = 0; $i < 20; $i++) {
+            $candidate = (string) random_int(1_000_000, 9_999_999);
+            $existing = $this->db->fetchOne(
+                "SELECT id FROM payment_links WHERE reference_number = ? LIMIT 1",
+                [$candidate]
+            );
+            if ($existing === null) {
+                return $candidate;
+            }
+        }
+        throw new \RuntimeException('Could not generate unique reference number after 20 attempts');
+    }
+
+    /**
+     * Generate a Crockford Base32 ULID (26 chars).
+     */
+    private function generateUlid(): string
+    {
+        $alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+        $time     = (int) (microtime(true) * 1000);
+        $timeStr  = '';
+        for ($i = 9; $i >= 0; $i--) {
+            $timeStr = $alphabet[$time & 31] . $timeStr;
+            $time >>= 5;
+        }
+        $randStr = '';
+        for ($i = 0; $i < 16; $i++) {
+            $randStr .= $alphabet[random_int(0, 31)];
+        }
+        return $timeStr . $randStr;
+    }
+
     public function cancel(string $id): void
     {
         $this->auth->requireAuth();
