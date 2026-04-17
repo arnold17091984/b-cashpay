@@ -275,6 +275,26 @@ class ScraperWebhookController
         // mb_convert_kana 'as': 全角英数・記号 -> 半角, 全角スペース -> 半角スペース
         $normalizedDepositor = mb_strtoupper(mb_convert_kana($depositorName, 'as'));
 
+        // Parse the deposit timestamp.  If it is unparseable we refuse to
+        // match — silently defaulting to "now" would undo the guard below
+        // and let stale bank-history rows match freshly-created links.
+        $depositTs = strtotime((string) $transactionDate);
+        if ($depositTs === false) {
+            // Persist as unmatched so the operator can see it.
+            $this->db->insert('deposits', [
+                'bank_account_id'    => $bankAccountId,
+                'payment_link_id'    => null,
+                'depositor_name'     => $depositorName,
+                'amount'             => $amount,
+                'transaction_date'   => null,
+                'bank_transaction_id'=> $bankTransactionId,
+                'matched_at'         => null,
+                'raw_data'           => json_encode($rawData),
+                'created_at'         => now_jst(),
+            ]);
+            return 'unmatched';
+        }
+
         // Stage 1: candidate set — status=pending, same bank, created <= 14
         // days ago, and the candidate must have been created at or before the
         // deposit date (a deposit cannot belong to a payment_link that did
@@ -299,9 +319,7 @@ class ScraperWebhookController
                 $amount,
                 'pending',
                 date('Y-m-d H:i:s', strtotime('-14 days')),
-                // Deposit-side timestamp, defaulting to "now" if unparseable,
-                // plus an end-of-day buffer to absorb bank/timezone skew.
-                date('Y-m-d H:i:s', strtotime($transactionDate) ?: time()),
+                date('Y-m-d H:i:s', $depositTs),
             ]
         );
 

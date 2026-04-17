@@ -123,10 +123,30 @@ class PaymentPageController
             exit;
         }
 
-        if (!in_array($row['link_type'], ['awaiting_input', 'template'], true)) {
-            // Fixed links cannot be resubmitted — redirect to the display page.
+        // Only awaiting_input and template links accept submits.  Anything
+        // else — a fixed `single` link that has already been filled, a
+        // confirmed/expired/cancelled link, a freshly-finalised awaiting
+        // link — gets redirected to the display page, which knows how to
+        // render the correct state.  We key on status (the authoritative
+        // state field) rather than link_type so the guard stays correct
+        // even if finaliseAwaitingInput flips link_type to 'single'.
+        if (!in_array($row['status'], ['awaiting_input', 'pending'], true)
+            || !in_array($row['link_type'], ['awaiting_input', 'template'], true)
+        ) {
             header('Location: /p/' . $token, true, 303);
             exit;
+        }
+
+        // Rate limit every inbound submit.  Two windows:
+        //   - per IP + per token: 5 submits / minute — stops repeated double
+        //     taps on one link from flooding the matcher
+        //   - per IP across all templates: 30 submits / 5 minutes — caps
+        //     the blast radius of a single attacker trying to spam many
+        //     template URLs
+        $clientIp = $this->clientIp();
+        \applyRateLimit('submit_' . md5($clientIp . '|' . $token), 5, 60, 429);
+        if ($row['link_type'] === 'template') {
+            \applyRateLimit('submit_tpl_' . md5($clientIp), 30, 300, 429);
         }
 
         $rawAmount = trim((string) ($_POST['amount'] ?? ''));
@@ -143,6 +163,14 @@ class PaymentPageController
         }
         $amount = (int) $normalised;
 
+        // Absolute server-side ceiling, independent of the per-link max.  The
+        // schema stores `amount` as DECIMAL(12,0) and the admin UI caps input
+        // at 7 digits, so anything beyond this is either operator data
+        // corruption or a malicious direct POST.
+        if ($amount > 9_999_999) {
+            $this->show($token, '金額の上限を超えています。', $prev);
+        }
+
         $min = $row['min_amount'] !== null ? (int) $row['min_amount'] : 1000;
         $max = $row['max_amount'] !== null ? (int) $row['max_amount'] : 500_000;
         if ($amount < $min || $amount > $max) {
@@ -154,17 +182,24 @@ class PaymentPageController
         }
 
         // ── Kana validation (optional) ────────────────────────────────────
+        // Policy: accept full-width / half-width katakana AND hiragana.
+        // Hiragana is silently converted to katakana so the stored value is
+        // always in the form the bank shows on deposit lines.  If you want
+        // to reject hiragana instead, add a `preg_match('/\p{Hiragana}/u',
+        // $rawKana)` check BEFORE the mb_convert_kana call.
         $kana = null;
         if ($rawKana !== '') {
-            $kanaNorm = mb_convert_kana($rawKana, 'KVC');
-            if (!preg_match('/^[\p{Katakana}ー\s　]{1,40}$/u', $kanaNorm)) {
+            // Pre-normalisation charset guard — reject anything that is not
+            // katakana/hiragana/prolonged-sound/spaces so junk input fails
+            // before we run it through the converter.
+            if (!preg_match('/^[\p{Katakana}\p{Hiragana}ー\s　]{1,40}$/u', $rawKana)) {
                 $this->show(
                     $token,
                     '振込依頼人名カナはカタカナで入力してください（空欄でも構いません）。',
                     $prev
                 );
             }
-            $kana = $kanaNorm;
+            $kana = mb_convert_kana($rawKana, 'KVC');  // → full-width katakana
         }
 
         // ── Branch on link_type ───────────────────────────────────────────
@@ -179,6 +214,19 @@ class PaymentPageController
         $this->service->finaliseAwaitingInput($row, $amount, $kana);
         header('Location: /p/' . $token, true, 303);
         exit;
+    }
+
+    /**
+     * Best-effort client IP extraction that respects the first hop of
+     * X-Forwarded-For when nginx is in front.  Same logic as
+     * rateLimitPublic() in api/public/index.php.
+     */
+    private function clientIp(): string
+    {
+        $raw = $_SERVER['HTTP_X_FORWARDED_FOR']
+            ?? $_SERVER['REMOTE_ADDR']
+            ?? 'unknown';
+        return trim(explode(',', (string) $raw)[0]);
     }
 
     /**

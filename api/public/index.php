@@ -28,11 +28,24 @@ load_env(dirname(__DIR__) . '/.env');
 date_default_timezone_set('Asia/Tokyo');
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Authorization, Content-Type, X-BCashPay-Scraper-Signature');
-header('Access-Control-Max-Age: 86400');
+// Restrict to first-party origins.  The public status-poll and payment-page
+// routes are same-origin only (served from b-pay.ink itself), and the admin
+// dashboard calls api.*.b-pay.ink routes from admin.b-pay.ink.  Third-party
+// cross-origin access to authenticated API routes is not a supported flow,
+// so reflecting the wildcard origin would widen the attack surface for no
+// legitimate benefit.
+$allowedOrigins = [
+    'https://b-pay.ink',
+    'https://admin.b-pay.ink',
+];
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if ($origin !== '' && in_array($origin, $allowedOrigins, true)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Vary: Origin');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Authorization, Content-Type, X-BCashPay-Scraper-Signature');
+    header('Access-Control-Max-Age: 86400');
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);

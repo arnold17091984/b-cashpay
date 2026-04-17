@@ -408,7 +408,7 @@ class PaymentLinkController
         Auth::validateCsrf();
 
         $link = $this->db->fetchOne(
-            "SELECT id, status FROM payment_links WHERE id = ? LIMIT 1",
+            "SELECT id, status, link_type FROM payment_links WHERE id = ? LIMIT 1",
             [$id]
         );
 
@@ -417,8 +417,11 @@ class PaymentLinkController
             exit;
         }
 
-        if ($link['status'] !== 'pending') {
-            View::setFlash('error', 'ステータスが pending の決済リンクのみキャンセルできます。');
+        // Cancellable statuses include awaiting_input (blank links issued by
+        // mistake) and pending (including template links).  Confirmed /
+        // expired / already-cancelled rows are terminal.
+        if (!in_array($link['status'], ['pending', 'awaiting_input'], true)) {
+            View::setFlash('error', 'キャンセルできないステータスです（既に入金済・期限切れ・キャンセル済）。');
             header("Location: /payments/{$id}");
             exit;
         }
@@ -429,6 +432,18 @@ class PaymentLinkController
             ['status' => 'cancelled', 'cancelled_at' => $now, 'updated_at' => $now],
             ['id' => $id]
         );
+
+        // Template cancellation cascades to every still-pending child so a
+        // customer who is mid-way through a template-spawned flow does not
+        // keep a live payment page open after the operator pulled the plug.
+        if ($link['link_type'] === 'template') {
+            $this->db->query(
+                "UPDATE payment_links
+                    SET status = 'cancelled', cancelled_at = ?, updated_at = ?
+                  WHERE parent_link_id = ? AND status = 'pending'",
+                [$now, $now, $id]
+            );
+        }
 
         View::setFlash('success', '決済リンクをキャンセルしました。');
         header("Location: /payments/{$id}");

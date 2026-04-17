@@ -340,17 +340,39 @@ class PaymentLinkService
      * Customer submitted amount + kana on an awaiting_input link — upgrade
      * the existing row in place to a ready-to-pay 'pending' link.
      *
-     * Uses an atomic UPDATE with status='awaiting_input' in the WHERE so
-     * two concurrent submits can't both succeed.
+     * Concurrency strategy:
+     *   1. Claim the row with a no-op UPDATE filtered on
+     *      status='awaiting_input'.  Only one concurrent caller observes
+     *      rowCount() == 1.
+     *   2. Allocate the reference number.  Losers never reach this step,
+     *      so the reference-number namespace is not burned on races.
+     *   3. Write the real fields + status='pending' to the same row.
      *
      * @param array<string, mixed> $row payment_links row
      */
     public function finaliseAwaitingInput(array $row, int $amount, ?string $kana): void
     {
         $this->db->transaction(function () use ($row, $amount, $kana) {
+            // Step 1: claim the slot.  `locked_at IS NULL` plus the status
+            // predicate guarantees only one winner even across the gap
+            // between steps 1 and 3.
+            $claim = $this->db->query(
+                'UPDATE payment_links
+                    SET locked_at = ?
+                  WHERE id = ?
+                    AND status = ?
+                    AND locked_at IS NULL',
+                [now_jst(), $row['id'], 'awaiting_input']
+            );
+            if ($claim->rowCount() === 0) {
+                throw new RuntimeException('Link already finalised or cancelled');
+            }
+
+            // Step 2: allocate reference only after winning the claim.
             $referenceNumber = $this->referenceGenerator->generate();
 
-            $affected = $this->db->query(
+            // Step 3: fill in the real fields and promote to pending.
+            $this->db->query(
                 'UPDATE payment_links
                     SET amount = ?,
                         customer_kana = COALESCE(?, customer_kana),
@@ -358,9 +380,8 @@ class PaymentLinkService
                         reference_number = ?,
                         status = ?,
                         link_type = ?,
-                        locked_at = ?,
                         updated_at = ?
-                  WHERE id = ? AND status = ?',
+                  WHERE id = ?',
                 [
                     $amount,
                     $kana,
@@ -369,14 +390,9 @@ class PaymentLinkService
                     'pending',
                     'single',
                     now_jst(),
-                    now_jst(),
                     $row['id'],
-                    'awaiting_input',
                 ]
             );
-            if ($affected->rowCount() === 0) {
-                throw new RuntimeException('Link already finalised or cancelled');
-            }
 
             $this->ensureScraperTask((int) $row['bank_account_id']);
         });

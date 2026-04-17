@@ -441,47 +441,57 @@ class TelegramCommandHandler
 
     private function rollingDailyAmount(int $adminUserId): int
     {
+        // Only count economically live links.  Cancelled / expired links
+        // never cost the admin's daily cap — otherwise a flaky auto-cancel
+        // path could DoS an admin's allowance, and an operator who issued
+        // and then corrected a bad link would be penalised.
         $cutoff = date('Y-m-d H:i:s', time() - 86_400);
         $row = $this->db->fetchOne(
             "SELECT COALESCE(SUM(amount), 0) AS total
              FROM payment_links
-             WHERE issued_by_admin_id = ? AND created_at >= ?",
+             WHERE issued_by_admin_id = ?
+               AND created_at >= ?
+               AND status NOT IN ('cancelled', 'expired')",
             [$adminUserId, $cutoff]
         );
         return (int) ($row['total'] ?? 0);
     }
 
     /**
-     * @return array<string, mixed>|null
+     * Atomically claim a pending intent so it can be acted on exactly once.
+     *
+     * The check (still pending + not expired + owned by this Telegram user)
+     * and the write (mark consumed) run as a single UPDATE so a duplicate
+     * callback_query delivery — either from Telegram's retry behaviour or
+     * from a second admin tapping the same card — cannot both succeed.
+     * Only the caller that observes rowCount() == 1 proceeds.
+     *
+     * @return array<string, mixed>|null intent row on winning claim, null otherwise
      */
     private function consumePendingIntent(string $nonce, int $telegramUserId): ?array
     {
-        $row = $this->db->fetchOne(
+        $result = $this->db->query(
+            'UPDATE telegram_pending_intents p
+                JOIN admin_users u ON u.id = p.admin_user_id
+                SET p.consumed_at = ?
+              WHERE p.nonce = ?
+                AND p.consumed_at IS NULL
+                AND p.expires_at > ?
+                AND u.telegram_user_id = ?',
+            [now_jst(), $nonce, now_jst(), $telegramUserId]
+        );
+        if ($result->rowCount() === 0) {
+            return null;
+        }
+
+        // Claim won — fetch the row for the caller.
+        return $this->db->fetchOne(
             'SELECT p.*, u.telegram_user_id
              FROM telegram_pending_intents p
              JOIN admin_users u ON u.id = p.admin_user_id
              WHERE p.nonce = ? LIMIT 1',
             [$nonce]
         );
-        if ($row === null) {
-            return null;
-        }
-        if ($row['consumed_at'] !== null) {
-            return null;
-        }
-        if (strtotime((string) $row['expires_at']) < time()) {
-            return null;
-        }
-        if ((int) $row['telegram_user_id'] !== $telegramUserId) {
-            return null; // Only the operator who staged it may confirm.
-        }
-
-        $this->db->update(
-            'telegram_pending_intents',
-            ['consumed_at' => now_jst()],
-            ['nonce' => $nonce]
-        );
-        return $row;
     }
 
     private function amountInKanji(int $amount): string
