@@ -1,173 +1,225 @@
 """
 Rakuten Bank Business Online Banking adapter.
 
-This adapter is an intentional SKELETON — the login and navigation selectors
-require a live Rakuten Business account to be verified against the actual DOM.
-The helper methods (_parse_amount, _parse_date, _make_payment_id) and the
-overall scaffold are fully implemented.
+This adapter targets 楽天銀行 法人ビジネスオンラインバンキング (Rakuten Bank
+Business Online Banking) without OTP / 2FA. The customer uses:
+    - User ID (ユーザーID / ログインID)
+    - Login password (ログインパスワード)
 
-Login URL (tentative — verify with a real session):
-    https://fes.rakuten-bank.co.jp/MS/main/RbS?CurrentPageID=START&COMMAND=LOGIN
+Flow:
+    1. Navigate to the login page.
+    2. Fill ユーザーID + パスワード, click ログイン.
+    3. Navigate directly to the deposit history URL (入出金明細).
+    4. Parse the transaction table.
 
-Steps to complete this adapter:
-    1. Run:  python3 -m bcashpay_scraper.runner --once --bank rakuten --no-headless
-    2. DevTools → inspect the login form, note id/name attrs of every input.
-    3. After login, navigate to 入出金明細, inspect the transaction table rows.
-    4. Fill in the SELECTOR placeholders in login(), navigate_to_transactions(),
-       and extract_transactions() below, then remove the NotImplementedError raises.
+Credentials stored in bank_accounts.scrape_credentials_json:
+    {
+        "username": "<ユーザーID>",
+        "password": "<ログインパスワード>"
+    }
+
+Notes on selectors:
+    Rakuten renames elements occasionally. The selectors below use a
+    layered fallback strategy (explicit id/name first, then role+text,
+    then placeholder) so one rename does not break the whole flow.
+    If the site redesigns heavily, run with --no-headless and update.
 """
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import logging
 import re
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
-from playwright.async_api import Page
+from playwright.async_api import Page, Locator, TimeoutError as PlaywrightTimeout
 
-from ..engine.base_adapter import BankAdapter, BankCredentials, RawTransaction
+from ..engine.base_adapter import BankAdapter, RawTransaction
 
 
 log = logging.getLogger('bcashpay_scraper.adapters.rakuten')
 
 
 class RakutenBusinessAdapter(BankAdapter):
-    """Rakuten Bank — Business Online Banking scraper.
+    """Rakuten Bank — Business Online Banking scraper (no OTP variant)."""
 
-    Credentials expected in ``scrape_credentials_json``:
-        {
-            "username": "<customer number or login ID>",
-            "password": "<login password>",
-            "totp_secret": "<base32 TOTP secret if 2FA is enabled>"
-        }
-    """
-
+    # Login landing page. The corporate portal redirects here from
+    # https://www.rakuten-bank.co.jp/corp/ "ログイン" button.
     login_url: str = (
         'https://fes.rakuten-bank.co.jp/MS/main/RbS'
         '?CurrentPageID=START&COMMAND=LOGIN'
     )
+
+    # Direct URL for 入出金明細 after login. SPA route — exact param may vary,
+    # adjust once you confirm in a real session.
+    transactions_url: str = (
+        'https://fes.rakuten-bank.co.jp/MS/main/RbS'
+        '?CurrentPageID=STMAIN'
+    )
+
     session_timeout_minutes: int = 15
 
-    # ── Abstract method implementations ──────────────────────────────────────
+    # ── Public abstract method implementations ───────────────────────────────
 
     async def login(self, page: Page) -> None:
         """Navigate to the Rakuten Business login page and authenticate.
 
-        Flow (verify selectors against live DOM):
-            1. Navigate to login_url.
-            2. Detect whether the session is already active (skip re-login).
-            3. Fill customer number / login ID field.
-            4. Fill password field.
-            5. Click the login button.
-            6. Handle OTP / TOTP challenge if shown.
-            7. Confirm we reached the post-login dashboard.
-
-        Raises:
-            NotImplementedError: Until selectors are confirmed against the live site.
+        Raises RuntimeError on selector / navigation failure. Caller wraps
+        exceptions and marks the bank_account as scrape_failed.
         """
-        log.info(f'[{self.bank_name}] navigating to login URL: {self.login_url}')
+        log.info(f'[{self.bank_name}] navigating to login URL')
         await page.goto(self.login_url, wait_until='domcontentloaded', timeout=60_000)
-        await asyncio.sleep(2)  # Allow SPA scripts to render.
+        await asyncio.sleep(2)  # Allow SPA scripts to settle
 
-        # Check if session is already active.
-        # SELECTOR: replace with a reliable post-login element, e.g.:
-        #   'text=ログアウト'  |  '#dashboard-header'  |  '.account-summary'
-        already_logged_in = False
-        try:
-            already_logged_in = await page.locator('text=ログアウト').is_visible(timeout=3_000)
-        except Exception:
-            pass
-
-        if already_logged_in:
-            log.info(f'[{self.bank_name}] session already active — skipping login form')
+        # ── 1. Detect an already-valid session ─────────────────────────────
+        if await self._is_logged_in(page):
+            log.info(f'[{self.bank_name}] session already active, skipping form')
             return
 
-        # Fill login form.
-        # SELECTOR: confirm actual input selectors from DevTools, then replace:
-        #   Login ID / customer number : '#LOGIN_ID'  or  'input[name="LOGIN_ID"]'
-        #   Password                   : '#PASSWORD'   or  'input[name="PASSWORD"]'
-        #   Submit button              : 'input[type="submit"]'  or  'button:has-text("ログイン")'
-        raise NotImplementedError(
-            'Rakuten Bank login selectors have not yet been confirmed against the live site.\n'
-            'Open the browser with --no-headless, inspect the DOM, and replace this raise with:\n'
-            '    await page.wait_for_selector("<LOGIN_ID_SELECTOR>", timeout=15_000)\n'
-            '    await page.fill("<LOGIN_ID_SELECTOR>", self.credentials.username)\n'
-            '    await page.fill("<PASSWORD_SELECTOR>", self.credentials.password)\n'
-            '    await page.click("<SUBMIT_SELECTOR>")\n'
-            'Then handle OTP via self._handle_otp(page) if applicable.\n'
-            'Finally wait for the dashboard: await page.wait_for_selector("<DASHBOARD_SELECTOR>")'
-        )
+        # ── 2. Fill ユーザーID ─────────────────────────────────────────────
+        user_input = await self._find_first_visible(page, [
+            'input#LOGIN_ID',
+            'input[name="LOGIN_ID"]',
+            'input[name="loginId"]',
+            'input[placeholder*="ユーザー"]',
+            'input[placeholder*="ID"]',
+        ])
+        if user_input is None:
+            raise RuntimeError(
+                f'[{self.bank_name}] login form not found — site may have changed'
+            )
+        await user_input.fill(self.credentials.username)
 
-        # OTP / 2FA — uncomment after login form is confirmed:
-        # await self._handle_otp(page)
+        # ── 3. Fill パスワード ─────────────────────────────────────────────
+        pw_input = await self._find_first_visible(page, [
+            'input#PASSWORD',
+            'input[name="PASSWORD"]',
+            'input[type="password"]',
+        ])
+        if pw_input is None:
+            raise RuntimeError(f'[{self.bank_name}] password field not found')
+        await pw_input.fill(self.credentials.password)
 
-        # Verify dashboard reached — replace selector after inspection:
-        # await page.wait_for_selector('<DASHBOARD_SELECTOR>', timeout=15_000)
-        # log.info(f'[{self.bank_name}] login complete, URL: {page.url}')
+        # ── 4. Click ログイン ──────────────────────────────────────────────
+        submit = await self._find_first_visible(page, [
+            'button:has-text("ログイン")',
+            'input[type="submit"][value*="ログイン"]',
+            'input[type="image"][alt*="ログイン"]',
+            'button[type="submit"]',
+        ])
+        if submit is None:
+            raise RuntimeError(f'[{self.bank_name}] login submit button not found')
+
+        log.info(f'[{self.bank_name}] submitting login form')
+        await submit.click()
+
+        # ── 5. Wait for post-login dashboard ───────────────────────────────
+        # Rakuten redirects to a dashboard page after login. Detect via any
+        # of these signals. Timeout if none appear within 30 seconds.
+        try:
+            await page.wait_for_function(
+                """() => {
+                    const t = document.body?.innerText || '';
+                    return /ログアウト|口座残高|入出金|マイ|ホーム/.test(t);
+                }""",
+                timeout=30_000,
+            )
+        except PlaywrightTimeout as exc:
+            # Check for an inline error message before giving up.
+            error_text = await self._read_error_message(page)
+            if error_text:
+                raise RuntimeError(
+                    f'[{self.bank_name}] login failed: {error_text}'
+                ) from exc
+            raise RuntimeError(
+                f'[{self.bank_name}] login timed out — no dashboard signal detected. '
+                f'Current URL: {page.url}'
+            ) from exc
+
+        log.info(f'[{self.bank_name}] login OK, URL: {page.url}')
 
     async def navigate_to_transactions(self, page: Page) -> None:
-        """Navigate to the deposit history / transaction list page.
+        """Navigate to the 入出金明細 (deposit history) page."""
+        log.info(f'[{self.bank_name}] navigating to transactions page')
 
-        Rakuten Business likely uses a URL such as:
-            https://fes.rakuten-bank.co.jp/MS/main/RbS?CurrentPageID=STMAIN
-        or a menu link labelled 入出金明細.
+        # Try direct URL first. Rakuten SPA typically accepts this.
+        await page.goto(self.transactions_url, wait_until='domcontentloaded', timeout=60_000)
+        await asyncio.sleep(2)
 
-        SELECTOR: confirm the exact URL or menu path against a live session,
-        then replace the raise below.
+        # If direct URL did not land on a transaction view, try clicking a
+        # menu link labelled 入出金明細 as fallback.
+        if not await self._has_transaction_table(page):
+            log.info(f'[{self.bank_name}] direct URL did not load table, trying menu link')
+            link = await self._find_first_visible(page, [
+                'a:has-text("入出金明細")',
+                'a:has-text("明細照会")',
+                'a[href*="STMAIN"]',
+            ])
+            if link is not None:
+                await link.click()
+                await asyncio.sleep(2)
 
-        Raises:
-            NotImplementedError: Until the transaction page URL is confirmed.
-        """
-        # Tentative direct URL — verify against a live session, then uncomment:
-        # transactions_url = (
-        #     'https://fes.rakuten-bank.co.jp/MS/main/RbS'
-        #     '?CurrentPageID=STMAIN'
-        # )
-        # log.info(f'[{self.bank_name}] navigating to {transactions_url}')
-        # await page.goto(transactions_url, wait_until='domcontentloaded', timeout=60_000)
-        # await asyncio.sleep(2)
-        # SELECTOR: replace with the table/list element that appears when data is loaded:
-        # await page.wait_for_selector('<TABLE_OR_LIST_SELECTOR>', timeout=15_000)
-        # log.info(f'[{self.bank_name}] arrived at: {page.url}')
+        # Final check — the table must be present before we extract.
+        try:
+            await page.wait_for_selector(
+                'table tbody tr, .transaction-list, [data-role="transaction-list"]',
+                timeout=15_000,
+            )
+        except PlaywrightTimeout as exc:
+            raise RuntimeError(
+                f'[{self.bank_name}] transaction table not found on {page.url}'
+            ) from exc
 
-        raise NotImplementedError(
-            'Rakuten Bank transaction page URL has not been confirmed.\n'
-            'After login: Network tab → navigate to 入出金明細 → copy the URL.\n'
-            'Then replace this raise with page.goto("<TRANSACTIONS_URL>") + '
-            'page.wait_for_selector("<TABLE_SELECTOR>").'
-        )
+        log.info(f'[{self.bank_name}] transactions page ready, URL: {page.url}')
 
     async def extract_transactions(self, page: Page) -> List[RawTransaction]:
-        """Parse deposit rows from the transaction list page.
+        """Parse deposit rows from the transaction table.
 
-        Expected table layout (verify column order against live DOM):
-            col 0 — 日付          (date,        e.g. "2026/04/16")
-            col 1 — 摘要/取引内容  (description / depositor name)
-            col 2 — 入金金額       (deposit,     e.g. "10,000")
-            col 3 — 出金金額       (withdrawal — skip rows where this is non-empty)
-            col 4 — 残高           (balance —    ignore)
+        Expected column layout (common Rakuten Bank format):
+            col 0 : 日付       e.g. "2026/04/16"  (sometimes with year header)
+            col 1 : 摘要       e.g. "振込 1234567 ヤマダ タロウ"
+            col 2 : 入金金額   e.g. "10,000" or "10,000円"
+            col 3 : 出金金額   empty for deposit rows
+            col 4 : 残高       ignored
 
-        A stable payment_id is computed as SHA-256(date|description|amount)
-        for deduplication when the bank does not expose its own transaction ID.
+        If the layout differs, adjust the index constants below.
+        """
+        results: List[RawTransaction] = []
 
-        Implementation outline (activate after navigate_to_transactions works):
+        rows = page.locator('table tbody tr')
+        count = await rows.count()
+        log.info(f'[{self.bank_name}] found {count} table rows')
 
-            results: List[RawTransaction] = []
-            rows = page.locator('table tbody tr')
-            count = await rows.count()
-            for i in range(count):
-                cells = await rows.nth(i).locator('td').all_text_contents()
-                if len(cells) < 3:
+        COL_DATE = 0
+        COL_DESC = 1
+        COL_DEPOSIT = 2
+        COL_WITHDRAW = 3
+
+        for i in range(count):
+            row = rows.nth(i)
+            try:
+                cells = await row.locator('td').all_text_contents()
+                if len(cells) < COL_DEPOSIT + 1:
+                    continue  # Header or separator row
+
+                date_str = cells[COL_DATE].strip()
+                description = cells[COL_DESC].strip()
+                deposit_str = cells[COL_DEPOSIT].strip()
+                withdraw_str = cells[COL_WITHDRAW].strip() if len(cells) > COL_WITHDRAW else ''
+
+                # Skip withdrawals and zero-amount rows
+                if withdraw_str and self._parse_amount(withdraw_str) > 0:
                     continue
-                date_str       = cells[0].strip()
-                description    = cells[1].strip()
-                deposit_str    = cells[2].strip()
-                withdrawal_str = cells[3].strip() if len(cells) > 3 else ''
-                if not deposit_str or withdrawal_str:
+                if not deposit_str:
                     continue
+
                 amount = self._parse_amount(deposit_str)
                 if amount <= 0:
                     continue
+                if not date_str:
+                    continue
+
                 results.append(RawTransaction(
                     payment_id=self._make_payment_id(date_str, description, amount),
                     amount=amount,
@@ -175,91 +227,116 @@ class RakutenBusinessAdapter(BankAdapter):
                     depositor_name=description,
                     memo='',
                 ))
-            return results
-        """
-        # Returns empty list — navigate_to_transactions raises NotImplementedError
-        # before this method is ever reached in the current state.
-        return []
+            except Exception as e:  # noqa: BLE001 — row-level failure must not stop scan
+                log.warning(f'[{self.bank_name}] row {i} parse failed: {e}')
+
+        log.info(f'[{self.bank_name}] extracted {len(results)} deposit transactions')
+        return results
 
     async def logout(self, page: Page) -> None:
-        """Attempt a graceful logout.  Failure is non-fatal."""
+        """Attempt a graceful logout. Failure is non-fatal."""
         try:
-            # SELECTOR: confirm the logout link — common patterns:
-            #   'a:has-text("ログアウト")'  |  '#logout-link'
-            await page.click('a:has-text("ログアウト")', timeout=5_000)
-            await page.wait_for_load_state('networkidle', timeout=10_000)
-            log.info(f'[{self.bank_name}] logged out')
+            btn = await self._find_first_visible(page, [
+                'a:has-text("ログアウト")',
+                'button:has-text("ログアウト")',
+                'a[href*="LOGOUT"]',
+            ])
+            if btn is not None:
+                await btn.click()
+                await page.wait_for_load_state('networkidle', timeout=10_000)
+                log.info(f'[{self.bank_name}] logged out')
         except Exception:
-            pass  # Best-effort — session expires on the bank's side anyway.
+            pass  # Session will expire server-side regardless
 
-    # ── Private helpers ───────────────────────────────────────────────────────
+    # ── Private helpers ──────────────────────────────────────────────────────
 
-    async def _handle_otp(self, page: Page) -> None:
-        """Handle a TOTP or SMS one-time-password challenge if present.
+    async def _find_first_visible(self, page: Page, selectors: List[str]) -> Optional[Locator]:
+        """Return the first visible Locator from a list of candidate selectors."""
+        for sel in selectors:
+            try:
+                loc = page.locator(sel).first
+                if await loc.is_visible(timeout=1_500):
+                    return loc
+            except Exception:
+                continue
+        return None
 
-        Generates a TOTP code from ``credentials.totp_secret`` via pyotp when
-        an OTP input is detected on the page.
-
-        SELECTOR: confirm the OTP input selector from live DOM inspection.
-        """
-        otp_input_selector = 'input[name*="otp" i], input[id*="otp" i], input[maxlength="6"]'
+    async def _is_logged_in(self, page: Page) -> bool:
+        """Heuristic: a logout link is visible somewhere on the page."""
         try:
-            otp_visible = await page.locator(otp_input_selector).first.is_visible(timeout=3_000)
+            return await page.locator('text=ログアウト').first.is_visible(timeout=3_000)
         except Exception:
-            otp_visible = False
+            return False
 
-        if not otp_visible:
-            return
+    async def _has_transaction_table(self, page: Page) -> bool:
+        """Quick probe: is a non-empty transaction table visible?"""
+        try:
+            count = await page.locator('table tbody tr').count()
+            return count > 0
+        except Exception:
+            return False
 
-        if not self.credentials.totp_secret:
-            raise RuntimeError(
-                f'[{self.bank_name}] OTP challenge detected but totp_secret is not set '
-                'in scrape_credentials_json'
-            )
+    async def _read_error_message(self, page: Page) -> Optional[str]:
+        """Return the visible error text after a failed login attempt, if any."""
+        for sel in [
+            '.error-message',
+            '.errorText',
+            '.js-error',
+            '[role="alert"]',
+            '.msgError',
+        ]:
+            try:
+                loc = page.locator(sel).first
+                if await loc.is_visible(timeout=1_500):
+                    text = (await loc.inner_text()).strip()
+                    if text:
+                        return text
+            except Exception:
+                continue
+        return None
 
-        import pyotp  # Lazy import — optional dependency.
-
-        code = pyotp.TOTP(self.credentials.totp_secret).now()
-        log.info(f'[{self.bank_name}] filling TOTP code')
-        await page.locator(otp_input_selector).first.fill(code)
-
-        # SELECTOR: confirm the OTP confirm button, then uncomment:
-        # await page.click('button:has-text("認証")')
-        await asyncio.sleep(1)
+    # ── Static parsing helpers ───────────────────────────────────────────────
 
     @staticmethod
     def _parse_amount(s: str) -> int:
         """Parse a Japanese bank amount string to an integer JPY value.
 
-        Handles formats like '¥10,000', '10,000円', '10000'.
-
-        Args:
-            s: Raw amount string from the bank table cell.
-
-        Returns:
-            Integer yen amount, or 0 if the string cannot be parsed.
+        Handles '¥10,000', '10,000円', '10000', full-width digits, etc.
         """
-        digits = re.sub(r'[^\d]', '', s)
+        # Normalise full-width digits / commas to half-width
+        import unicodedata
+        normalised = unicodedata.normalize('NFKC', s)
+        digits = re.sub(r'[^\d]', '', normalised)
         return int(digits) if digits else 0
 
     @staticmethod
     def _parse_date(s: str) -> datetime:
-        """Parse a date string from Rakuten Bank into a datetime.
+        """Parse a Rakuten Bank date cell into a datetime.
 
-        Tries common Japanese bank date formats:
-            '2026/04/16', '2026-04-16', '2026年04月16日'
-
-        Args:
-            s: Raw date string from the bank table cell.
-
-        Returns:
-            Parsed datetime, or datetime.now() as a fallback.
+        Handles the common Japanese bank formats and returns now() as a
+        fallback rather than raising, so one bad row does not abort the scan.
         """
-        for fmt in ('%Y/%m/%d', '%Y-%m-%d', '%Y年%m月%d日'):
+        import unicodedata
+        normalised = unicodedata.normalize('NFKC', s).strip()
+
+        # Extract first YYYY/MM/DD-ish substring (may have year-only prefix)
+        m = re.search(r'(\d{4})[/\-年](\d{1,2})[/\-月](\d{1,2})', normalised)
+        if m:
+            y, mo, d = (int(x) for x in m.groups())
             try:
-                return datetime.strptime(s.strip(), fmt)
+                return datetime(y, mo, d)
             except ValueError:
-                continue
+                pass
+
+        # Short form MM/DD (current year implied)
+        m = re.search(r'(\d{1,2})[/\-月](\d{1,2})', normalised)
+        if m:
+            mo, d = (int(x) for x in m.groups())
+            try:
+                return datetime(datetime.now().year, mo, d)
+            except ValueError:
+                pass
+
         log.warning(f'Could not parse date: {s!r} — using now()')
         return datetime.now()
 
@@ -267,16 +344,9 @@ class RakutenBusinessAdapter(BankAdapter):
     def _make_payment_id(date_str: str, description: str, amount: int) -> str:
         """Build a stable deduplication ID from transaction fields.
 
-        Uses SHA-256 of ``date|description|amount`` so the same transaction
-        always produces the same ID across scrape runs.
-
-        Args:
-            date_str: Raw date string as seen in the table.
-            description: Depositor name / transaction description.
-            amount: Integer yen amount.
-
-        Returns:
-            64-character hex SHA-256 digest.
+        Rakuten does not always expose an internal transaction ID in the
+        HTML table, so we hash date + description + amount. The same row
+        across scrape runs produces the same ID → idempotent inserts.
         """
         raw = f'{date_str}|{description}|{amount}'
         return hashlib.sha256(raw.encode('utf-8')).hexdigest()
