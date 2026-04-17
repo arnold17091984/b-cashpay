@@ -167,3 +167,20 @@ CREATE TABLE IF NOT EXISTS `telegram_logs` (
     KEY `idx_payment_link_id` (`payment_link_id`),
     KEY `idx_sent_at` (`sent_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Admin Users ─────────────────────────────────────────────
+-- Admin dashboard login accounts.
+CREATE TABLE IF NOT EXISTS `admin_users` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `username` VARCHAR(100) NOT NULL,
+    `password_hash` VARCHAR(255) NOT NULL,
+    `name` VARCHAR(255) NOT NULL DEFAULT '',
+    `email` VARCHAR(255) NOT NULL DEFAULT '',
+    `role` ENUM('admin','operator') NOT NULL DEFAULT 'operator',
+    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    `last_login_at` TIMESTAMP NULL DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_admin_username` (`username`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -58,9 +58,10 @@ class DashboardController
             "SELECT DATE(confirmed_at) as date, SUM(amount) as total
              FROM payment_links
              WHERE status = 'confirmed'
-               AND confirmed_at >= date('now', '-6 days')
+               AND confirmed_at >= ?
              GROUP BY DATE(confirmed_at)
-             ORDER BY date ASC"
+             ORDER BY date ASC",
+            [date('Y-m-d 00:00:00', strtotime('-6 days'))]
         );
 
         // Build complete 7-day array
