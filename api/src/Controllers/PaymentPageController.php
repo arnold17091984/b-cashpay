@@ -53,8 +53,8 @@ class PaymentPageController
             http_response_code(404);
             echo $this->renderTemplate('expired.html', [
                 'MESSAGE' => '支払いリンクが見つかりません。',
-                'BRAND_NAME' => 'B-CashPay',
-                'SERVICE_NAME' => 'B-CashPay',
+                'BRAND_NAME' => 'B-Pay',
+                'SERVICE_NAME' => 'B-Pay',
                 'RETURN_URL' => '',
             ]);
             exit;
@@ -197,8 +197,8 @@ class PaymentPageController
             'ACCOUNT_NUMBER'     => (string) ($row['account_number'] ?? ''),
             'ACCOUNT_NAME'       => (string) ($row['account_name'] ?? ''),
             'PAYMENT_ID'         => (string) $row['id'],
-            'BRAND_NAME'         => 'B-CashPay',
-            'SERVICE_NAME'       => 'B-CashPay',
+            'BRAND_NAME'         => 'B-Pay',
+            'SERVICE_NAME'       => 'B-Pay',
             'RETURN_URL'         => '',
         ]);
     }
@@ -220,8 +220,8 @@ class PaymentPageController
             'CUSTOMER_NAME'     => (string) ($row['customer_name'] ?? ''),
             'CONFIRMED_AT'      => $confirmedAt,
             'STATUS'            => 'confirmed',
-            'BRAND_NAME'        => 'B-CashPay',
-            'SERVICE_NAME'      => 'B-CashPay',
+            'BRAND_NAME'        => 'B-Pay',
+            'SERVICE_NAME'      => 'B-Pay',
             'RETURN_URL'        => '',
         ]);
     }
@@ -237,22 +237,33 @@ class PaymentPageController
             'CURRENCY'          => (string) ($row['currency'] ?? 'JPY'),
             'REFERENCE_NUMBER'  => (string) ($row['reference_number'] ?? ''),
             'STATUS'            => (string) ($row['status'] ?? 'expired'),
-            'BRAND_NAME'        => 'B-CashPay',
-            'SERVICE_NAME'      => 'B-CashPay',
+            'BRAND_NAME'        => 'B-Pay',
+            'SERVICE_NAME'      => 'B-Pay',
             'RETURN_URL'        => '',
         ]);
     }
 
     /**
-     * Extract the kana customer name for depositor-name display.
-     * If the DB does not have a dedicated kana column, we reuse customer_name
-     * (the caller is responsible for providing katakana when creating the link).
+     * Extract the katakana customer name used on the bank depositor line.
+     *
+     * Source priority:
+     *   1. payment_links.customer_kana         — dedicated column (preferred)
+     *   2. metadata.customer_kana              — legacy fallback from JSON metadata
+     *   3. customer_name if it's already kana  — heuristic for pure-kana input
+     *
+     * If no kana is available, returns an empty string so the UI can highlight
+     * that the customer should transfer using the reference number only.
      *
      * @param array<string, mixed> $row
      */
     private function extractKana(array $row): string
     {
-        // metadata.customer_kana is the preferred source (API callers provide it)
+        // 1) Preferred: dedicated column
+        if (!empty($row['customer_kana'])) {
+            return (string) $row['customer_kana'];
+        }
+
+        // 2) Legacy: metadata.customer_kana
         $metadata = $row['metadata'] ?? null;
         if (is_string($metadata) && $metadata !== '') {
             $decoded = json_decode($metadata, true);
@@ -260,6 +271,14 @@ class PaymentPageController
                 return (string) $decoded['customer_kana'];
             }
         }
-        return (string) ($row['customer_name'] ?? '');
+
+        // 3) Heuristic: if customer_name contains only katakana + whitespace, use it
+        $name = (string) ($row['customer_name'] ?? '');
+        if ($name !== '' && preg_match('/^[\p{Katakana}\p{Hiragana}ー\s　]+$/u', $name)) {
+            // If hiragana, convert to katakana for consistency
+            return mb_convert_kana($name, 'C');
+        }
+
+        return '';
     }
 }

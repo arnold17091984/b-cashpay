@@ -1,5 +1,5 @@
 /* =============================================================================
-   B-CashPay — Premium Payment Page Design System
+   B-Pay — Premium Payment Page Design System
    Stripe Checkout / Apple Pay quality
    =============================================================================
 
@@ -1382,4 +1382,614 @@ body.bcp-page--expired {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ============================================================================
+   v3 — Compact redesign (2026-04-17)
+   Focus: katakana depositor name as hero action, above-the-fold clarity
+   ============================================================================ */
+
+.bcp {
+    max-width: 540px;
+    margin: 0 auto;
+    padding: 16px 18px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* ── Top bar ─────────────────────────────────────────────── */
+.bcp-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 2px;
+}
+
+.bcp-topbar__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #10b981;
+    letter-spacing: -0.02em;
+    text-decoration: none;
+}
+
+.bcp-topbar__mark {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    display: grid;
+    place-items: center;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+}
+
+.bcp-topbar__mark svg { width: 12px; height: 12px; }
+
+.bcp-topbar__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    background: rgba(245, 158, 11, 0.12);
+    color: #b45309;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.bcp-topbar__status--confirmed {
+    background: rgba(16, 185, 129, 0.12);
+    color: #047857;
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+.bcp-topbar__status--expired {
+    background: rgba(239, 68, 68, 0.12);
+    color: #b91c1c;
+    border-color: rgba(239, 68, 68, 0.25);
+}
+
+.bcp-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: bcp-status-pulse 1.8s ease-in-out infinite;
+}
+
+.bcp-topbar__status--confirmed .bcp-status-dot,
+.bcp-topbar__status--expired .bcp-status-dot {
+    animation: none;
+}
+
+@keyframes bcp-status-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.9); }
+}
+
+/* ── Hero ─────────────────────────────────────────────────── */
+.bcp-hero {
+    text-align: center;
+    padding: 18px 8px 4px;
+}
+
+.bcp-hero__label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #64748b;
+    letter-spacing: 0.04em;
+    margin: 0 0 6px;
+}
+
+.bcp-hero__amount {
+    font-size: clamp(56px, 14vw, 84px);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+    margin: 0 0 12px;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.bcp-hero__currency {
+    font-size: 0.5em;
+    font-weight: 600;
+    opacity: 0.75;
+    transform: translateY(-0.2em);
+}
+
+.bcp-hero__meta {
+    font-size: 12px;
+    color: #64748b;
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.bcp-hero__ref {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: #0f172a;
+    background: #f1f5f9;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+}
+
+/* ── Depositor card — THE critical card ──────────────────── */
+.bcp-depositor {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    border-radius: 20px;
+    padding: 24px 20px;
+    color: white;
+    box-shadow:
+        0 12px 32px -8px rgba(16, 185, 129, 0.35),
+        0 4px 16px -4px rgba(5, 150, 105, 0.2),
+        0 1px 2px rgba(0, 0, 0, 0.05);
+    position: relative;
+    overflow: hidden;
+}
+
+.bcp-depositor::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(ellipse at top right, rgba(255,255,255,0.16), transparent 40%),
+        radial-gradient(ellipse at bottom left, rgba(0,0,0,0.08), transparent 40%);
+    pointer-events: none;
+}
+
+.bcp-depositor > * { position: relative; z-index: 1; }
+
+.bcp-depositor__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.88);
+    background: rgba(255, 255, 255, 0.14);
+    padding: 4px 10px 4px 6px;
+    border-radius: 999px;
+    margin-bottom: 14px;
+}
+
+.bcp-depositor__step {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.22);
+    display: grid;
+    place-items: center;
+    color: white;
+}
+
+.bcp-depositor__step svg { width: 11px; height: 11px; }
+
+.bcp-depositor__title {
+    font-size: 17px;
+    font-weight: 700;
+    margin: 0 0 18px;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    color: white;
+}
+
+.bcp-depositor__value {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    padding: 20px 16px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1.5px dashed rgba(255, 255, 255, 0.35);
+    border-radius: 14px;
+    margin-bottom: 14px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    color: white;
+}
+
+.bcp-depositor__ref {
+    font-size: clamp(28px, 7vw, 38px);
+    letter-spacing: 0.1em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.bcp-depositor__kana {
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-size: clamp(18px, 4.5vw, 24px);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.bcp-depositor__sep { display: none; }
+
+.bcp-depositor__copy {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 14px 16px;
+    background: white;
+    color: #047857;
+    border: 0;
+    border-radius: 12px;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.bcp-depositor__copy:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.bcp-depositor__copy:active {
+    transform: translateY(0);
+}
+
+.bcp-depositor__copy.is-copied {
+    background: #065f46;
+    color: white;
+}
+
+.bcp-depositor__copy.is-copied::before {
+    content: '✓ ';
+    margin-right: 4px;
+}
+
+.bcp-depositor__copy svg { width: 18px; height: 18px; }
+
+.bcp-depositor__note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 14px 0 0;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.88);
+    line-height: 1.5;
+}
+
+.bcp-depositor__note svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.bcp-depositor__note strong {
+    color: white;
+    font-weight: 700;
+}
+
+/* ── Bank compact list ───────────────────────────────────── */
+.bcp-bank {
+    background: white;
+    border-radius: 14px;
+    padding: 16px 18px;
+    box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.05),
+        0 1px 3px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.bcp-bank__title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 4px;
+}
+
+.bcp-bank__list {
+    margin: 0;
+    padding: 0;
+}
+
+.bcp-bank__row {
+    display: grid;
+    grid-template-columns: 84px 1fr;
+    gap: 12px;
+    padding: 10px 0;
+    border-top: 1px solid #f1f5f9;
+    align-items: center;
+    font-size: 13px;
+}
+
+.bcp-bank__row:first-child { border-top: 0; padding-top: 12px; }
+
+.bcp-bank__row dt {
+    font-size: 11px;
+    font-weight: 500;
+    color: #94a3b8;
+    letter-spacing: 0.02em;
+    margin: 0;
+}
+
+.bcp-bank__row dd {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.bcp-bank__row dd > span:first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.bcp-bank__num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.bcp-bank__kana {
+    font-feature-settings: 'palt';
+}
+
+.bcp-bank__amount {
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: #047857;
+    font-variant-numeric: tabular-nums;
+}
+
+.bcp-copy-inline {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: white;
+    color: #64748b;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bcp-copy-inline:hover {
+    border-color: #10b981;
+    color: #10b981;
+    background: #ecfdf5;
+}
+
+.bcp-copy-inline.is-copied {
+    border-color: #10b981;
+    background: #10b981;
+    color: white;
+}
+
+.bcp-copy-inline svg { width: 13px; height: 13px; }
+
+/* ── How-to (collapsible) ─────────────────────────────────── */
+.bcp-howto {
+    background: white;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+}
+
+.bcp-howto summary {
+    padding: 14px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    list-style: none;
+    user-select: none;
+    transition: background 150ms;
+}
+
+.bcp-howto summary::-webkit-details-marker { display: none; }
+
+.bcp-howto summary:hover { background: #f8fafc; }
+
+.bcp-howto summary > svg:first-of-type {
+    width: 15px;
+    height: 15px;
+    color: #10b981;
+    flex-shrink: 0;
+}
+
+.bcp-howto__chevron {
+    margin-left: auto;
+    transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    color: #94a3b8;
+}
+
+.bcp-howto__chevron svg { width: 14px; height: 14px; }
+
+.bcp-howto[open] .bcp-howto__chevron {
+    transform: rotate(180deg);
+}
+
+.bcp-howto__steps {
+    list-style: none;
+    counter-reset: bcp-step;
+    margin: 0;
+    padding: 4px 18px 16px 18px;
+    border-top: 1px solid #f1f5f9;
+}
+
+.bcp-howto__steps li {
+    counter-increment: bcp-step;
+    padding: 10px 0 10px 32px;
+    position: relative;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #475569;
+    border-top: 1px solid #f8fafc;
+}
+
+.bcp-howto__steps li:first-child { border-top: 0; }
+
+.bcp-howto__steps li::before {
+    content: counter(bcp-step);
+    position: absolute;
+    left: 0;
+    top: 10px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ecfdf5;
+    color: #047857;
+    font-size: 11px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.bcp-howto__steps strong {
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.bcp-howto__code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: #ecfdf5;
+    color: #047857;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
+/* ── Footer ──────────────────────────────────────────────── */
+.bcp-footer {
+    text-align: center;
+    margin-top: 8px;
+    padding: 12px 0 0;
+}
+
+.bcp-footer__meta {
+    font-size: 11px;
+    color: #94a3b8;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.bcp-footer__meta strong {
+    color: #64748b;
+    font-weight: 600;
+}
+
+/* ── Toast ───────────────────────────────────────────────── */
+.bcp-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(24px);
+    background: #0f172a;
+    color: white;
+    padding: 12px 18px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow:
+        0 12px 24px rgba(0, 0, 0, 0.25),
+        0 4px 8px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0;
+    transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 9999;
+    pointer-events: none;
+    max-width: calc(100vw - 32px);
+}
+
+.bcp-toast.is-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.bcp-toast svg {
+    width: 16px;
+    height: 16px;
+    color: #10b981;
+    flex-shrink: 0;
+}
+
+/* ── Body / Page base ────────────────────────────────────── */
+html, body {
+    background: #f8fafc;
+    color: #0f172a;
+    font-family: 'Inter', -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+}
+
+body {
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ── Mobile refinements ──────────────────────────────────── */
+@media (max-width: 480px) {
+    .bcp { padding: 12px 14px 40px; gap: 16px; }
+    .bcp-hero { padding-top: 8px; }
+    .bcp-depositor { padding: 20px 18px; border-radius: 18px; }
+    .bcp-depositor__value { padding: 18px 12px; }
+    .bcp-bank__row { grid-template-columns: 72px 1fr; }
+}
+
+/* ── Print — clean receipt style ─────────────────────────── */
+@media print {
+    .bcp-depositor { background: white !important; color: #0f172a !important; box-shadow: none !important; border: 2px solid #10b981; }
+    .bcp-depositor__title, .bcp-depositor__kana { color: #0f172a !important; }
+    .bcp-depositor__ref { color: #059669 !important; }
+    .bcp-depositor__copy, .bcp-copy-inline, .bcp-howto { display: none !important; }
 }

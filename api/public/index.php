@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * B-CashPay API — Single Entry Point + Router
+ * B-Pay API — Single Entry Point + Router
  *
  * Routes:
  *   POST   /api/v1/payments                  — Create payment link      [API key]

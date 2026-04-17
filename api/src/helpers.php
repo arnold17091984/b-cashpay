@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Global helper functions for B-CashPay API.
+ * Global helper functions for B-Pay API.
  * Loaded automatically via Composer's "files" autoload.
  */
 

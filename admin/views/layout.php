@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark">
-    <title><?= htmlspecialchars($title ?? 'Admin', ENT_QUOTES, 'UTF-8') ?> — B-CashPay</title>
+    <title><?= htmlspecialchars($title ?? 'Admin', ENT_QUOTES, 'UTF-8') ?> — B-Pay</title>
 
     <link rel="preconnect" href="https://rsms.me/">
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
@@ -44,7 +44,7 @@ $navItems = [
                 </svg>
             </div>
             <div class="brand-name">
-                <span>B-CashPay</span>
+                <span>B-Pay</span>
                 <em>Admin</em>
             </div>
         </div>

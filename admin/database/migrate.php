@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Database migration script for B-CashPay Admin (SQLite).
+ * Database migration script for B-Pay Admin (SQLite).
  *
  * Reads the SQLite-compatible schema and creates the database.
  * Run: php admin/database/migrate.php

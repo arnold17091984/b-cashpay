@@ -10,7 +10,7 @@ use PDOException;
 use RuntimeException;
 
 /**
- * Lightweight PDO wrapper for B-CashPay.
+ * Lightweight PDO wrapper for B-Pay.
  *
  * Provides a singleton connection and convenience helpers that map directly
  * to the SQL patterns used throughout the application.

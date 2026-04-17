@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * B-CashPay application configuration.
+ * B-Pay application configuration.
  *
  * Reads from environment variables (loaded via .env or system env).
  * All values have safe defaults — override via .env for production.

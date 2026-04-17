@@ -1,5 +1,5 @@
 /**
- * B-CashPay Payment Page — Client-side logic
+ * B-Pay Payment Page — Client-side logic
  *
  * Responsibilities:
  *   1. Copy button functionality (clipboard API + textarea fallback)

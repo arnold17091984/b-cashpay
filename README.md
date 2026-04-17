@@ -1,4 +1,4 @@
-# B-CashPay
+# B-Pay
 
 Bank transfer payment gateway for Japanese e-commerce. Accepts bank transfers (furikomi) with automatic deposit detection and matching via bank scraping.
 

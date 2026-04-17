@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Seed script for B-CashPay Admin.
+ * Seed script for B-Pay Admin.
  *
  * Creates default admin user, sample API client, bank account, and payment links.
  * Run: php admin/database/seed.php
@@ -119,11 +119,11 @@ if ((int) ($existingLinks['cnt'] ?? 0) === 0) {
     $pdo->prepare(
         "INSERT INTO payment_links
             (id, api_client_id, bank_account_id, external_id, reference_number, amount, currency,
-             customer_name, customer_email, callback_url, status, token, expires_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             customer_name, customer_kana, customer_email, callback_url, status, token, expires_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )->execute([
         $id1, $clientId, $bankId, 'ORDER-001', '1000001', 50000, 'JPY',
-        '山田 太郎', 'yamada@example.com', 'https://telebet.example.com/webhooks/payment',
+        '山田 太郎', 'ヤマダ タロウ', 'yamada@example.com', 'https://telebet.example.com/webhooks/payment',
         'pending', bin2hex(random_bytes(16)), $expires72h, $now, $now,
     ]);
 
@@ -133,11 +133,11 @@ if ((int) ($existingLinks['cnt'] ?? 0) === 0) {
     $pdo->prepare(
         "INSERT INTO payment_links
             (id, api_client_id, bank_account_id, external_id, reference_number, amount, currency,
-             customer_name, customer_email, callback_url, status, token, expires_at, confirmed_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             customer_name, customer_kana, customer_email, callback_url, status, token, expires_at, confirmed_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )->execute([
         $id2, $clientId, $bankId, 'ORDER-002', '1000002', 120000, 'JPY',
-        '鈴木 花子', 'suzuki@example.com', 'https://telebet.example.com/webhooks/payment',
+        '鈴木 花子', 'スズキ ハナコ', 'suzuki@example.com', 'https://telebet.example.com/webhooks/payment',
         'confirmed', bin2hex(random_bytes(16)), $expires72h, $confirmedAt, $confirmedAt, $now,
     ]);
 

@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS payment_links (
     amount REAL NOT NULL,
     currency TEXT NOT NULL DEFAULT 'JPY',
     customer_name TEXT NOT NULL,
+    customer_kana TEXT DEFAULT NULL,
     customer_email TEXT DEFAULT NULL,
     callback_url TEXT DEFAULT NULL,
     metadata TEXT DEFAULT NULL,

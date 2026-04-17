@@ -1,37 +1,23 @@
 <!DOCTYPE html>
 <!--
-  B-CashPay Payment Page — payment.html
-  ============================================
-  Template rendered server-side by the PHP API.
-  {{PLACEHOLDER}} markers are replaced by the PHP controller before serving.
+  B-Pay Payment Page — payment.html
 
-  PHP variables injected:
-    {{TOKEN}}             — payment link token (for polling)
-    {{STATUS_URL}}        — polling endpoint e.g. /api/v1/pay/{token}/status
-    {{AMOUNT}}            — raw integer e.g. "150000"
-    {{AMOUNT_FORMATTED}}  — comma-formatted e.g. "150,000"
-    {{REFERENCE_NUMBER}}  — 7-digit ref e.g. "1000001"
-    {{CUSTOMER_NAME}}     — kanji name e.g. "山田 太郎"
-    {{DEPOSITOR_NAME}}    — full formatted e.g. "1000001 ヤマダ タロウ"
-    {{DEADLINE_DATE}}     — display date e.g. "2026/04/20 12:30"
-    {{DEADLINE_ISO}}      — ISO datetime for JS countdown
-    {{BANK_NAME}}         — e.g. "楽天銀行"
-    {{BRANCH_NAME}}       — e.g. "法人営業部"
-    {{BRANCH_CODE}}       — e.g. "101"
-    {{ACCOUNT_TYPE}}      — e.g. "普通"
-    {{ACCOUNT_NUMBER}}    — e.g. "1234567"
-    {{ACCOUNT_NAME}}      — e.g. "カ)テストコーポレーション"
-    {{SERVICE_NAME}}      — merchant name
-    {{RETURN_URL}}        — return URL (may be empty)
+  Design principles:
+    1. Above-the-fold: amount + reference + bank in one glance
+    2. One primary action: "依頼人名をコピー"
+    3. Katakana-first: depositor name is the HERO
+    4. Progressive disclosure: instructions are collapsible
+
+  Template placeholders are substituted by PaymentPageController.
 -->
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="noindex,nofollow">
-  <title>お振込案内 — B-CashPay</title>
+  <meta name="theme-color" content="#10b981">
+  <title>お振込案内 — {{BRAND_NAME}}</title>
 
-  <!-- Fonts -->
   <link rel="preconnect" href="https://rsms.me">
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -46,373 +32,200 @@
   data-payment-status="pending"
 >
 
-<!-- ── Main payment page ──────────────────────────────────────────────────── -->
-<div class="bcp">
-  <div class="bcp__inner">
+<main class="bcp" role="main">
 
-    <!-- ─── Brand header ──────────────────────────────────────── -->
-    <header class="bcp-head">
-      <div class="bcp-head__brand">
-        <span class="bcp-head__brand-logo" aria-hidden="true">
-          <!-- B mark -->
-          <svg viewBox="0 0 12 12" fill="none">
-            <path d="M3 2h4a2 2 0 010 4H3V2zm0 4h4.5a2 2 0 010 4H3V6z"
-                  fill="currentColor" fill-opacity="0.9"/>
-          </svg>
-        </span>
-        B-CashPay
-      </div>
+  <!-- ─── Top bar ───────────────────────────────────────── -->
+  <nav class="bcp-topbar" aria-label="ヘッダー">
+    <a href="#" class="bcp-topbar__brand" aria-label="{{BRAND_NAME}}">
+      <span class="bcp-topbar__mark" aria-hidden="true">
+        <svg viewBox="0 0 12 12" fill="none">
+          <path d="M3 2h4a2 2 0 010 4H3V2zm0 4h4.5a2 2 0 010 4H3V6z" fill="currentColor"/>
+        </svg>
+      </span>
+      <span>{{BRAND_NAME}}</span>
+    </a>
+    <output class="bcp-topbar__status bcp-topbar__status--pending" id="bcp-status-badge">
+      <span class="bcp-status-dot" aria-hidden="true"></span>
+      <span class="bcp-status-text">支払い待ち</span>
+    </output>
+  </nav>
 
-      <!-- Hero: amount -->
-      <div class="bcp-hero">
-        <p class="bcp-hero__label">振り込み金額</p>
-        <div class="bcp-hero__amount" aria-label="振込金額: {{AMOUNT_FORMATTED}}円">
-          <span class="bcp-hero__currency" aria-hidden="true">¥</span>
-          <span class="bcp-hero__number">{{AMOUNT_FORMATTED}}</span>
-        </div>
-        <p class="bcp-hero__name">
-          <strong>{{CUSTOMER_NAME}}</strong> 様 宛
-        </p>
-      </div>
+  <!-- ─── Hero: amount ──────────────────────────────────── -->
+  <section class="bcp-hero" aria-label="振込金額">
+    <p class="bcp-hero__label">お振込み金額</p>
+    <h1 class="bcp-hero__amount" aria-label="振込金額 {{AMOUNT_FORMATTED}} 円">
+      <span class="bcp-hero__currency" aria-hidden="true">¥</span><span class="bcp-hero__number">{{AMOUNT_FORMATTED}}</span>
+    </h1>
+    <p class="bcp-hero__meta">
+      <span>参照: <code class="bcp-hero__ref">{{REFERENCE_NUMBER}}</code></span>
+      <span aria-hidden="true">·</span>
+      <span>期限: <time data-deadline="{{DEADLINE_ISO}}" id="bcp-deadline-countdown">{{DEADLINE_DATE}}</time></span>
+    </p>
+  </section>
 
-      <!-- Status pill -->
-      <output class="bcp-status bcp-status--pending" id="bcp-status-badge">
-        <span class="bcp-status-dot-wrap" aria-hidden="true">
-          <span class="bcp-status-dot"></span>
-        </span>
-        <span class="bcp-status-text">支払い待ち</span>
-      </output>
-    </header>
+  <!-- ─── The critical card: Depositor name ─────────────── -->
+  <section class="bcp-depositor" aria-labelledby="bcp-depositor-title">
+    <div class="bcp-depositor__eyebrow">
+      <span class="bcp-depositor__step" aria-hidden="true">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 2l2 2-8 8-4 1 1-4 8-8z"/>
+        </svg>
+      </span>
+      もっとも重要
+    </div>
+    <h2 class="bcp-depositor__title" id="bcp-depositor-title">
+      この依頼人名で振り込んでください
+    </h2>
 
-    <!-- ─── Poll status bar ──────────────────────────────────── -->
-    <div class="bcp-poll-bar" id="bcp-poll-bar" aria-live="polite">
-      <span class="bcp-poll-bar__spinner" aria-hidden="true"></span>
-      <span>入金確認中… 最終確認: <time id="bcp-last-checked">—</time></span>
+    <div class="bcp-depositor__value" role="group" aria-label="依頼人名">
+      <span class="bcp-depositor__ref">{{REFERENCE_NUMBER}}</span>
+      <span class="bcp-depositor__sep" aria-hidden="true"> </span>
+      <span class="bcp-depositor__kana">{{CUSTOMER_NAME_KANA}}</span>
     </div>
 
-    <!-- ─── Deadline ─────────────────────────────────────────── -->
-    <div class="bcp-deadline" role="alert">
+    <button
+      class="bcp-depositor__copy"
+      type="button"
+      data-copy="{{DEPOSITOR_NAME}}"
+      aria-label="依頼人名『{{DEPOSITOR_NAME}}』をコピー"
+      id="bcp-primary-copy"
+    >
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="7" y="7" width="11" height="11" rx="2"/>
+        <path d="M4 13H3a1.5 1.5 0 01-1.5-1.5V3A1.5 1.5 0 013 1.5h8A1.5 1.5 0 0112.5 3v1"/>
+      </svg>
+      <span class="bcp-depositor__copy-label">依頼人名をコピー</span>
+    </button>
+
+    <p class="bcp-depositor__note">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.5"/>
+        <path d="M8 5v3.5M8 11v.01"/>
+      </svg>
+      <span>漢字は使えません。<strong>必ず半角カナ</strong>でご入力ください。</span>
+    </p>
+  </section>
+
+  <!-- ─── Bank account — compact ────────────────────────── -->
+  <section class="bcp-bank" aria-labelledby="bcp-bank-title">
+    <h2 class="bcp-bank__title" id="bcp-bank-title">振込先口座</h2>
+    <dl class="bcp-bank__list">
+      <div class="bcp-bank__row">
+        <dt>金融機関</dt>
+        <dd>
+          <span data-bcp-bank="bank_name">{{BANK_NAME}}</span>
+          <button class="bcp-copy-inline" type="button" data-copy="{{BANK_NAME}}" aria-label="銀行名をコピー">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
+              <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
+            </svg>
+          </button>
+        </dd>
+      </div>
+      <div class="bcp-bank__row">
+        <dt>支店</dt>
+        <dd>
+          <span data-bcp-bank="branch">{{BRANCH_NAME}} ({{BRANCH_CODE}})</span>
+          <button class="bcp-copy-inline" type="button" data-copy="{{BRANCH_NAME}} {{BRANCH_CODE}}" aria-label="支店をコピー">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
+              <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
+            </svg>
+          </button>
+        </dd>
+      </div>
+      <div class="bcp-bank__row">
+        <dt>預金種別</dt>
+        <dd><span data-bcp-bank="account_type">{{ACCOUNT_TYPE}}預金</span></dd>
+      </div>
+      <div class="bcp-bank__row">
+        <dt>口座番号</dt>
+        <dd>
+          <span class="bcp-bank__num" data-bcp-bank="account_number">{{ACCOUNT_NUMBER}}</span>
+          <button class="bcp-copy-inline" type="button" data-copy="{{ACCOUNT_NUMBER}}" aria-label="口座番号をコピー">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
+              <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
+            </svg>
+          </button>
+        </dd>
+      </div>
+      <div class="bcp-bank__row">
+        <dt>口座名義</dt>
+        <dd>
+          <span class="bcp-bank__kana" data-bcp-bank="account_name">{{ACCOUNT_NAME}}</span>
+          <button class="bcp-copy-inline" type="button" data-copy="{{ACCOUNT_NAME}}" aria-label="口座名義をコピー">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
+              <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
+            </svg>
+          </button>
+        </dd>
+      </div>
+      <div class="bcp-bank__row">
+        <dt>振込金額</dt>
+        <dd>
+          <span class="bcp-bank__amount">¥{{AMOUNT_FORMATTED}}</span>
+          <button class="bcp-copy-inline" type="button" data-copy="{{AMOUNT}}" aria-label="金額をコピー">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
+              <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
+            </svg>
+          </button>
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ─── Collapsible: how it works ─────────────────────── -->
+  <details class="bcp-howto">
+    <summary>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="8" cy="8" r="6.5"/>
-        <polyline points="8 4.5 8 8 10.5 9.5"/>
+        <path d="M8 11V8M8 5v.01"/>
       </svg>
-      <span>
-        振込期限: <strong>{{DEADLINE_DATE}}</strong>
-        （残り: <span id="bcp-deadline-countdown" data-deadline="{{DEADLINE_ISO}}">—</span>）
+      振込の流れ
+      <span class="bcp-howto__chevron" aria-hidden="true">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 5l3 3 3-3"/>
+        </svg>
       </span>
+    </summary>
+    <ol class="bcp-howto__steps">
+      <li>
+        <strong>ATM または ネットバンキング</strong>で上記の口座を振込先に指定。
+      </li>
+      <li>
+        依頼人名を <code class="bcp-howto__code">{{DEPOSITOR_NAME}}</code> のように入力（半角カナ）。
+      </li>
+      <li>
+        金額 <strong>¥{{AMOUNT_FORMATTED}}</strong> を正確に入力して送金。
+      </li>
+      <li>
+        このページが自動で入金を確認します。通常 15〜60 分以内に反映されます。
+      </li>
+    </ol>
+  </details>
+
+  <!-- ─── Footer meta ───────────────────────────────────── -->
+  <footer class="bcp-footer">
+    <div class="bcp-footer__meta">
+      <span>Powered by <strong>{{BRAND_NAME}}</strong></span>
+      <span aria-hidden="true">·</span>
+      <span>{{PAYMENT_ID}}</span>
     </div>
+  </footer>
 
-    <!-- ─── Card 1: Amount ───────────────────────────────────── -->
-    <section class="bcp-card" aria-labelledby="bcp-amount-title">
-      <div class="bcp-card__header">
-        <span class="bcp-card__step-badge" aria-hidden="true">1</span>
-        <span class="bcp-card__eyebrow">STEP 1 &mdash; AMOUNT</span>
-      </div>
-      <h2 class="bcp-card__title" id="bcp-amount-title">振込金額を確認する</h2>
-      <div class="bcp-card__body">
-        <div class="bcp-bank-rows">
-          <div class="bcp-bank-row">
-            <span class="bcp-bank-row__label">金額</span>
-            <span class="bcp-bank-row__value bcp-bank-row__value--mono"
-                  style="font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;">
-              ¥{{AMOUNT_FORMATTED}}
-            </span>
-            <span class="bcp-bank-row__actions">
-              <button
-                class="bcp-copy-mini"
-                type="button"
-                data-copy="{{AMOUNT}}"
-                aria-label="金額をコピー"
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
-                  <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
-                </svg>
-                コピー
-              </button>
-            </span>
-          </div>
-        </div>
-        <p style="font-size:12px;color:var(--fg-3);margin-top:10px;text-align:center;">
-          税込 / 振込手数料はお客様負担
-        </p>
-      </div>
-    </section>
+</main>
 
-    <!-- ─── Card 2: Bank account ─────────────────────────────── -->
-    <section class="bcp-card" aria-labelledby="bcp-bank-title">
-      <div class="bcp-card__header">
-        <span class="bcp-card__step-badge" aria-hidden="true">2</span>
-        <span class="bcp-card__eyebrow">STEP 2 &mdash; BANK ACCOUNT</span>
-      </div>
-      <h2 class="bcp-card__title" id="bcp-bank-title">振込先口座</h2>
-      <div class="bcp-card__body">
-        <div class="bcp-bank-rows" role="table" aria-label="振込先口座情報">
-
-          <div class="bcp-bank-row" role="row">
-            <span class="bcp-bank-row__label" role="rowheader">金融機関</span>
-            <span class="bcp-bank-row__value" role="cell" data-bcp-bank="bank_name">{{BANK_NAME}}</span>
-            <span class="bcp-bank-row__actions" role="cell">
-              <button class="bcp-copy-mini" type="button" data-copy="{{BANK_NAME}}" aria-label="銀行名をコピー">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
-                  <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
-                </svg>
-                コピー
-              </button>
-            </span>
-          </div>
-
-          <div class="bcp-bank-row" role="row">
-            <span class="bcp-bank-row__label" role="rowheader">支店</span>
-            <span class="bcp-bank-row__value" role="cell" data-bcp-bank="branch">
-              {{BRANCH_NAME}}&thinsp;({{BRANCH_CODE}})
-            </span>
-            <span class="bcp-bank-row__actions" role="cell">
-              <button class="bcp-copy-mini" type="button" data-copy="{{BRANCH_NAME}}" aria-label="支店名をコピー">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
-                  <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
-                </svg>
-                コピー
-              </button>
-            </span>
-          </div>
-
-          <div class="bcp-bank-row" role="row">
-            <span class="bcp-bank-row__label" role="rowheader">預金種別</span>
-            <span class="bcp-bank-row__value" role="cell" data-bcp-bank="account_type">{{ACCOUNT_TYPE}}預金</span>
-            <span class="bcp-bank-row__actions" role="cell"></span>
-          </div>
-
-          <div class="bcp-bank-row" role="row">
-            <span class="bcp-bank-row__label" role="rowheader">口座番号</span>
-            <span class="bcp-bank-row__value bcp-bank-row__value--mono" role="cell" data-bcp-bank="account_number">{{ACCOUNT_NUMBER}}</span>
-            <span class="bcp-bank-row__actions" role="cell">
-              <button class="bcp-copy-mini" type="button" data-copy="{{ACCOUNT_NUMBER}}" aria-label="口座番号をコピー">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
-                  <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
-                </svg>
-                コピー
-              </button>
-            </span>
-          </div>
-
-          <div class="bcp-bank-row" role="row">
-            <span class="bcp-bank-row__label" role="rowheader">口座名義</span>
-            <span class="bcp-bank-row__value" role="cell" data-bcp-bank="account_name"
-                  style="font-size:13px;letter-spacing:0.04em;">{{ACCOUNT_NAME}}</span>
-            <span class="bcp-bank-row__actions" role="cell">
-              <button class="bcp-copy-mini" type="button" data-copy="{{ACCOUNT_NAME}}" aria-label="口座名義をコピー">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
-                  <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
-                </svg>
-                コピー
-              </button>
-            </span>
-          </div>
-
-        </div>
-      </div>
-    </section>
-
-    <!-- ─── Card 3: Reference hero (gradient) ───────────────── -->
-    <section class="bcp-card bcp-ref-card" aria-labelledby="bcp-ref-title">
-      <div class="bcp-card__header">
-        <span class="bcp-card__step-badge" style="background:rgba(255,255,255,0.25);color:#fff;" aria-hidden="true">3</span>
-        <span class="bcp-card__eyebrow">STEP 3 &mdash; IMPORTANT</span>
-      </div>
-      <h2 class="bcp-card__title" id="bcp-ref-title">依頼人名の先頭にこの番号を入れてください</h2>
-      <div class="bcp-card__body">
-        <div class="bcp-ref">
-          <p class="bcp-ref__sublabel">参照番号（半角数字）</p>
-          <div class="bcp-ref__number-box">
-            <span class="bcp-ref__code" aria-label="参照番号: {{REFERENCE_NUMBER}}">{{REFERENCE_NUMBER}}</span>
-          </div>
-          <p class="bcp-ref__depositor-label">振込時の「依頼人名」を次の形式で入力</p>
-          <span class="bcp-ref__depositor">{{DEPOSITOR_NAME}}</span>
-        </div>
-
-        <button
-          class="bcp-copy-btn"
-          type="button"
-          data-copy="{{DEPOSITOR_NAME}}"
-          aria-label="依頼人名をクリップボードにコピー"
-        >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/>
-            <path d="M3 10.5H2a1.5 1.5 0 01-1.5-1.5V2A1.5 1.5 0 012 .5h7A1.5 1.5 0 0110.5 2v1"/>
-          </svg>
-          依頼人名をコピー
-        </button>
-      </div>
-    </section>
-
-    <!-- ─── Card 4: Steps guide ──────────────────────────────── -->
-    <section class="bcp-card" aria-labelledby="bcp-steps-title">
-      <div class="bcp-card__header">
-        <span class="bcp-card__eyebrow">お振込みの手順</span>
-      </div>
-      <h2 class="bcp-card__title" id="bcp-steps-title">4ステップで完了します</h2>
-      <div class="bcp-card__body">
-        <ol class="bcp-steps" aria-label="振込手順">
-
-          <li class="bcp-step">
-            <div class="bcp-step__num-wrap">
-              <span class="bcp-step__num" aria-hidden="true">1</span>
-            </div>
-            <div class="bcp-step__body">
-              <p class="bcp-step__title">振込先を登録する</p>
-              <p class="bcp-step__desc">
-                ATMまたはネットバンキングで <strong>STEP 2</strong> の口座を振込先として入力してください。
-              </p>
-            </div>
-          </li>
-
-          <li class="bcp-step">
-            <div class="bcp-step__num-wrap">
-              <span class="bcp-step__num" aria-hidden="true">2</span>
-            </div>
-            <div class="bcp-step__body">
-              <p class="bcp-step__title">依頼人名に参照番号を入れる</p>
-              <p class="bcp-step__desc">
-                依頼人名（振込人名義）を
-                <span class="bcp-ref-inline">{{DEPOSITOR_NAME}}</span>
-                の形式で<strong>半角入力</strong>してください。参照番号は<strong>必ず半角</strong>で、全角にしないでください。
-              </p>
-            </div>
-          </li>
-
-          <li class="bcp-step">
-            <div class="bcp-step__num-wrap">
-              <span class="bcp-step__num" aria-hidden="true">3</span>
-            </div>
-            <div class="bcp-step__body">
-              <p class="bcp-step__title">{{AMOUNT_FORMATTED}}円をぴったり振り込む</p>
-              <p class="bcp-step__desc">
-                金額を正確に入力してください。振込手数料はお客様負担です（金額に含まれていません）。
-              </p>
-            </div>
-          </li>
-
-          <li class="bcp-step">
-            <div class="bcp-step__num-wrap">
-              <span class="bcp-step__num" aria-hidden="true">4</span>
-            </div>
-            <div class="bcp-step__body">
-              <p class="bcp-step__title">このページで入金確認を待つ</p>
-              <p class="bcp-step__desc">
-                このページは自動で入金を確認しています。確認されると画面が自動的に切り替わります。通常 15〜60 分以内に反映されます。
-              </p>
-            </div>
-          </li>
-
-        </ol>
-      </div>
-    </section>
-
-    <!-- ─── Card 5: Notices ──────────────────────────────────── -->
-    <section class="bcp-card" aria-labelledby="bcp-notice-title">
-      <div class="bcp-card__header">
-        <span class="bcp-card__eyebrow">注意事項</span>
-      </div>
-      <h2 class="bcp-card__title" id="bcp-notice-title" style="font-size:14px;font-weight:600;color:var(--fg-2);">
-        ご確認ください
-      </h2>
-      <div class="bcp-card__body">
-        <div class="bcp-notices">
-          <div class="bcp-notice bcp-notice--warn" role="alert">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M8 1.5L1 14h14L8 1.5z"/>
-              <line x1="8" y1="6" x2="8" y2="9"/>
-              <line x1="8" y1="11.5" x2="8.01" y2="11.5"/>
-            </svg>
-            <div>
-              <strong>参照番号がないと自動確認できません。</strong>
-              依頼人名を「{{DEPOSITOR_NAME}}」の形式で必ずご入力ください。
-            </div>
-          </div>
-          <div class="bcp-notice bcp-notice--info">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="8" cy="8" r="6.5"/>
-              <line x1="8" y1="10.5" x2="8" y2="8"/>
-              <line x1="8" y1="5.5" x2="8.01" y2="5.5"/>
-            </svg>
-            <div>
-              <strong>振込手数料はお客様のご負担</strong>です。振込金額に手数料は含まれていません。
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ─── Meta ──────────────────────────────────────────────── -->
-    <div class="bcp-meta" aria-label="支払い情報詳細">
-      <span>参照番号: {{REFERENCE_NUMBER}}</span>
-      <span class="bcp-meta__sep" aria-hidden="true">|</span>
-      <span>有効期限: {{DEADLINE_DATE}}</span>
-    </div>
-
-    <!-- ─── Actions ──────────────────────────────────────────── -->
-    <div class="bcp-actions">
-      <button type="button" class="bcp-action-btn" onclick="window.print()">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="1.5" width="10" height="7" rx="1"/>
-          <path d="M3 8.5H1.5A.5.5 0 001 9v4.5a.5.5 0 00.5.5h13a.5.5 0 00.5-.5V9a.5.5 0 00-.5-.5H13"/>
-          <rect x="3.5" y="10" width="9" height="4.5" rx=".5"/>
-        </svg>
-        印刷・保存
-      </button>
-      <a href="{{RETURN_URL}}" class="bcp-action-btn" rel="noopener noreferrer">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M10 3L6 8l4 5"/>
-        </svg>
-        {{SERVICE_NAME}}に戻る
-      </a>
-    </div>
-
-    <!-- ─── Footer ──────────────────────────────────────────── -->
-    <p class="bcp-footer">Powered by B-CashPay</p>
-
-  </div><!-- /.bcp__inner -->
-</div><!-- /.bcp -->
-
-<!-- ── Confirmed overlay (JS shows on payment confirmation) ──────────────── -->
-<dialog
-  class="bcp-confirmed-overlay"
-  id="bcp-confirmed-overlay"
-  aria-labelledby="bcp-overlay-title"
->
-  <div class="bcp-confirmed-overlay__check" aria-hidden="true">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M20 6L9 17l-5-5"/>
-    </svg>
-  </div>
-  <h2 class="bcp-confirmed-overlay__title" id="bcp-overlay-title">入金確認済み</h2>
-  <p class="bcp-confirmed-overlay__sub">
-    お振込みを確認しました。<br>
-    ご利用ありがとうございます。
-  </p>
-  <a href="{{RETURN_URL}}" class="bcp-confirmed-overlay__btn" rel="noopener noreferrer">
-    {{SERVICE_NAME}}に戻る
-  </a>
-</dialog>
-
-<!-- ── Toast ─────────────────────────────────────────────────────────────── -->
-<output
-  class="bcp-toast"
-  id="bcp-toast"
-  aria-live="polite"
-  aria-atomic="true"
->
+<!-- ─── Toast ────────────────────────────────────────── -->
+<div class="bcp-toast" id="bcp-toast" role="status" aria-live="polite">
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M13.5 4L6 11.5l-3.5-3.5"/>
+    <path d="M13 4L6 11 3 8"/>
   </svg>
-  <span id="bcp-toast-text">コピーしました</span>
-</output>
+  <span class="bcp-toast__text">コピーしました</span>
+</div>
 
-<script src="../assets/js/payment.js"></script>
+<script src="../assets/js/payment.js" defer></script>
 </body>
 </html>

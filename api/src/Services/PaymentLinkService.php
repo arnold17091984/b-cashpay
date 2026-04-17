@@ -39,10 +39,18 @@ class PaymentLinkService
         // 1. Validate
         $amount       = isset($data['amount']) ? (int) $data['amount'] : 0;
         $customerName = trim((string) ($data['customer_name'] ?? ''));
+        $customerKana = isset($data['customer_kana']) ? trim((string) $data['customer_kana']) : null;
         $externalId   = isset($data['external_id']) ? trim((string) $data['external_id']) : null;
         $callbackUrl  = isset($data['callback_url']) ? trim((string) $data['callback_url']) : null;
         $metadata     = isset($data['metadata']) && is_array($data['metadata']) ? $data['metadata'] : null;
         $customerEmail = isset($data['customer_email']) ? trim((string) $data['customer_email']) : null;
+
+        // Normalize kana: hiragana → katakana, trim
+        if ($customerKana !== null && $customerKana !== '') {
+            $customerKana = mb_convert_kana($customerKana, 'C');
+        } else {
+            $customerKana = null;
+        }
         $expiryHours  = (int) config('payment.expiry_hours', 72);
 
         if ($amount <= 0) {
@@ -63,7 +71,7 @@ class PaymentLinkService
 
         // 3. Generate IDs inside a transaction to guarantee uniqueness
         return $this->db->transaction(function () use (
-            $amount, $customerName, $externalId, $callbackUrl, $metadata,
+            $amount, $customerName, $customerKana, $externalId, $callbackUrl, $metadata,
             $customerEmail, $expiryHours, $bankAccount, $client
         ): array {
             // 3a. Generate reference number (7-digit unique)
@@ -88,6 +96,7 @@ class PaymentLinkService
                 'amount'          => $amount,
                 'currency'        => 'JPY',
                 'customer_name'   => $customerName,
+                'customer_kana'   => $customerKana,
                 'customer_email'  => $customerEmail,
                 'callback_url'    => $callbackUrl ?? $client['callback_url'],
                 'metadata'        => $metadata !== null ? json_encode($metadata) : null,
@@ -126,6 +135,7 @@ class PaymentLinkService
                 'amount'           => $amount,
                 'currency'         => 'JPY',
                 'customer_name'    => $customerName,
+                'customer_kana'    => $customerKana,
                 'customer_email'   => $customerEmail,
                 'reference_number' => $referenceNumber,
                 'token'            => $token,

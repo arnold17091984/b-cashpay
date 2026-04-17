@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * B-CashPay API Route Reference
+ * B-Pay API Route Reference
  *
  * All routing is implemented directly in public/index.php via the dispatch()
  * function. This file documents the full route table for reference.

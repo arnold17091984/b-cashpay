@@ -1,8 +1,8 @@
-# B-CashPay — Bank Transfer Payment Gateway
+# B-Pay — Bank Transfer Payment Gateway
 
 ## Project Overview
 
-B-CashPay is a standalone bank transfer payment gateway extracted from the LionExpressPay system. It provides a clean, API-driven way for e-commerce sites to accept bank transfer (furikomi) payments with automatic deposit matching via bank scraping.
+B-Pay is a standalone bank transfer payment gateway extracted from the LionExpressPay system. It provides a clean, API-driven way for e-commerce sites to accept bank transfer (furikomi) payments with automatic deposit matching via bank scraping.
 
 **Core value proposition**: API client creates a payment link -> customer sees a payment page with bank details + reference number -> bank scraper detects the deposit -> system auto-matches and sends webhook callback.
 
@@ -10,7 +10,7 @@ B-CashPay is a standalone bank transfer payment gateway extracted from the LionE
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
-│  EC-CUBE /   │────>│  B-CashPay   │────>│  Payment Page   │
+│  EC-CUBE /   │────>│  B-Pay   │────>│  Payment Page   │
 │  Shopify /   │<────│  API (PHP)   │     │  (HTML/JS)      │
 │  Any Client  │     └──────┬───────┘     └─────────────────┘
 └─────────────┘            │
@@ -58,7 +58,7 @@ B-CashPay is a standalone bank transfer payment gateway extracted from the LionE
 - **Webhook sender**: Scraper sends deposits to API via authenticated webhook, not direct DB write. Clean separation of concerns.
 - **HMAC authentication**: API clients authenticate with HMAC-SHA256 signatures over request body.
 
-### New in B-CashPay (different from LionExpressPay)
+### New in B-Pay (different from LionExpressPay)
 - **ULID payment link IDs**: URL-safe, sortable, no auto-increment exposure.
 - **Token-based payment pages**: Each payment link has a unique 32-char token for the customer URL. No encryption needed.
 - **Simplified schema**: No merchant/user/role system. Just api_clients, bank_accounts, and payment_links.

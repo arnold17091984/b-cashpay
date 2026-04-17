@@ -1,4 +1,4 @@
-# B-CashPay Admin Dashboard
+# B-Pay Admin Dashboard
 
 Phase 3 placeholder. Will be a Next.js admin panel for:
 

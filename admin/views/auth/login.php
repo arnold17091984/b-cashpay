@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark">
-    <title>ログイン — B-CashPay Admin</title>
+    <title>ログイン — B-Pay Admin</title>
     <link rel="preconnect" href="https://rsms.me/">
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.20/index.min.css">
@@ -28,7 +28,7 @@
             </svg>
         </div>
         <div class="brand-name">
-            <span>B-CashPay</span>
+            <span>B-Pay</span>
             <em>Admin</em>
         </div>
     </div>
@@ -70,7 +70,7 @@
     </form>
 
     <p class="login-footer">
-        B-CashPay &middot; <?= date('Y') ?>
+        B-Pay &middot; <?= date('Y') ?>
     </p>
 </div>
 

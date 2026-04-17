@@ -1,5 +1,5 @@
 /**
- * B-CashPay Admin — Shared JavaScript
+ * B-Pay Admin — Shared JavaScript
  */
 
 'use strict';

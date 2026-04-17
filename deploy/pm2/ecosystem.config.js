@@ -1,4 +1,4 @@
-// B-CashPay PM2 Ecosystem Configuration
+// B-Pay PM2 Ecosystem Configuration
 // Manages the Python scraper processes
 
 module.exports = {
