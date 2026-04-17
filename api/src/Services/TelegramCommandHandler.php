@@ -219,8 +219,8 @@ class TelegramCommandHandler
         $kanaRaw = trim($m[2]);
         $kana    = mb_convert_kana($kanaRaw, 'KC'); // half→full width katakana + space collapse
 
-        if ($amount < 100 || $amount > 9_999_999) {
-            $this->tg->sendMessage($chatId, '金額は ¥100 〜 ¥9,999,999 の整数で指定してください。', null, $messageId);
+        if ($amount < 100 || $amount > 10_000_000) {
+            $this->tg->sendMessage($chatId, '金額は ¥100 〜 ¥10,000,000 の整数で指定してください。', null, $messageId);
             return;
         }
         if (!preg_match('/^[\p{Katakana}ー\s　]+$/u', $kana)) {

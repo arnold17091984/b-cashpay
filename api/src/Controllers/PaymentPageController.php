@@ -164,10 +164,10 @@ class PaymentPageController
         $amount = (int) $normalised;
 
         // Absolute server-side ceiling, independent of the per-link max.  The
-        // schema stores `amount` as DECIMAL(12,0) and the admin UI caps input
-        // at 7 digits, so anything beyond this is either operator data
+        // schema stores `amount` as DECIMAL(12,0) so this is well within the
+        // column width; anything beyond ¥10,000,000 is either operator data
         // corruption or a malicious direct POST.
-        if ($amount > 9_999_999) {
+        if ($amount > 10_000_000) {
             $this->show($token, '金額の上限を超えています。', $prev);
         }
 

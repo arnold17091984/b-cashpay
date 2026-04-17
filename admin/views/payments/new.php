@@ -84,7 +84,7 @@ $old_val = fn(string $k, string $default = ''): string =>
                     name="amount"
                     class="input"
                     min="1"
-                    max="9999999"
+                    max="10000000"
                     step="1"
                     required
                     placeholder="50000"
@@ -172,7 +172,7 @@ $old_val = fn(string $k, string $default = ''): string =>
                 <div class="field">
                     <label class="field__label" for="min_amount">最小金額（円）</label>
                     <input type="number" id="min_amount" name="min_amount" class="input"
-                           min="1" max="9999999" step="1"
+                           min="1" max="10000000" step="1"
                            value="<?= $old_val('min_amount', '1000') ?>"
                            style="font-family:'JetBrains Mono',monospace;font-weight:600;">
                     <?= $err('min_amount') ?>
@@ -180,7 +180,7 @@ $old_val = fn(string $k, string $default = ''): string =>
                 <div class="field">
                     <label class="field__label" for="max_amount">最大金額（円）</label>
                     <input type="number" id="max_amount" name="max_amount" class="input"
-                           min="1" max="9999999" step="1"
+                           min="1" max="10000000" step="1"
                            value="<?= $old_val('max_amount', '500000') ?>"
                            style="font-family:'JetBrains Mono',monospace;font-weight:600;">
                     <?= $err('max_amount') ?>

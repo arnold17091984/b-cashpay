@@ -244,11 +244,11 @@ class PaymentLinkController
                     }
                 }
             }
-            if ($minAmount < 1 || $minAmount > 9_999_999) {
-                $errors['min_amount'] = '最小金額は 1 〜 9,999,999 で指定してください。';
+            if ($minAmount < 1 || $minAmount > 10_000_000) {
+                $errors['min_amount'] = '最小金額は 1 〜 10,000,000 で指定してください。';
             }
-            if ($maxAmount < $minAmount || $maxAmount > 9_999_999) {
-                $errors['max_amount'] = '最大金額は最小金額以上、9,999,999 以下で指定してください。';
+            if ($maxAmount < $minAmount || $maxAmount > 10_000_000) {
+                $errors['max_amount'] = '最大金額は最小金額以上、10,000,000 以下で指定してください。';
             }
         }
 
