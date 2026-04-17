@@ -114,6 +114,13 @@ BCASHPAY_SCRAPER_SECRET = os.environ.get('BCASHPAY_SCRAPER_SECRET', 'change-me-s
 POLL_INTERVAL_SECONDS = int(os.environ.get('POLL_INTERVAL_SECONDS', '60'))
 DEFAULT_SCRAPE_INTERVAL_MINUTES = int(os.environ.get('DEFAULT_SCRAPE_INTERVAL_MINUTES', '15'))
 
+# Baseline interval used when there are no pending payment links for an
+# account.  Still running at this cadence catches unsolicited deposits (the
+# customer paid without a link, or paid against an already-expired link) and
+# keeps bank_accounts.current_balance fresh for the dashboard.  Set
+# conservatively to reduce bot-detection risk on the bank side.
+IDLE_SCRAPE_INTERVAL_MINUTES = int(os.environ.get('IDLE_SCRAPE_INTERVAL_MINUTES', '180'))
+
 
 # ── DB connection helpers ─────────────────────────────────────────────────────
 
@@ -365,14 +372,23 @@ def log_scraper_task(
 
 # ── Scheduling helpers ────────────────────────────────────────────────────────
 
-def is_due_for_scrape(account_row: dict) -> bool:
+def is_due_for_scrape(account_row: dict, interval_minutes: Optional[int] = None) -> bool:
     """Return True if enough time has elapsed since the last scrape.
+
+    Args:
+        account_row: A row from :func:`load_active_bank_accounts`.
+        interval_minutes: Override interval.  When None, falls back to
+            ``account_row['scrape_interval_minutes']`` then
+            :data:`DEFAULT_SCRAPE_INTERVAL_MINUTES`.  Callers pass
+            :data:`IDLE_SCRAPE_INTERVAL_MINUTES` to evaluate the baseline
+            (no-pending) schedule.
 
     Accounts that have never been scraped (``scrape_last_at`` is NULL) are
     always considered due.
     """
     last_str = account_row.get('scrape_last_at')
-    interval = int(account_row.get('scrape_interval_minutes') or DEFAULT_SCRAPE_INTERVAL_MINUTES)
+    if interval_minutes is None:
+        interval_minutes = int(account_row.get('scrape_interval_minutes') or DEFAULT_SCRAPE_INTERVAL_MINUTES)
 
     if not last_str:
         return True
@@ -390,7 +406,7 @@ def is_due_for_scrape(account_row: dict) -> bool:
         else:
             return True  # Unparseable — treat as due.
 
-    return datetime.now() >= last + timedelta(minutes=interval)
+    return datetime.now() >= last + timedelta(minutes=interval_minutes)
 
 
 # ── Core scrape cycle ─────────────────────────────────────────────────────────
@@ -549,13 +565,19 @@ async def run_bank_scrape(account_row: dict, headless: bool = True) -> bool:
 async def main_loop(poll_interval_seconds: int = POLL_INTERVAL_SECONDS) -> None:
     """Continuous loop: check due accounts every *poll_interval_seconds* seconds.
 
-    An account is scraped when:
-      - It has at least one pending payment_link.
-      - Enough time has elapsed since its last scrape (per scrape_interval_minutes).
-
-    Both conditions must be true to prevent unnecessary browser launches.
+    An account is scraped when enough time has elapsed since the last scrape.
+    The interval used depends on whether there is work waiting:
+      - Pending payment_links exist → use ``scrape_interval_minutes``
+        (15 min default — fast feedback so customers see matches quickly).
+      - No pending links → fall back to ``IDLE_SCRAPE_INTERVAL_MINUTES``
+        (180 min default) so we still catch unsolicited deposits and keep
+        the dashboard balance fresh, while staying conservative enough to
+        avoid tripping bank bot-detection heuristics.
     """
-    log.info(f'B-CashPay scraper runner started (poll every {poll_interval_seconds}s)')
+    log.info(
+        f'B-CashPay scraper runner started (poll every {poll_interval_seconds}s, '
+        f'idle baseline {IDLE_SCRAPE_INTERVAL_MINUTES}min)'
+    )
 
     while True:
         try:
@@ -567,15 +589,19 @@ async def main_loop(poll_interval_seconds: int = POLL_INTERVAL_SECONDS) -> None:
                 bank_name = account.get('bank_name', f'bank#{account_id}')
 
                 pending = count_pending_payments_for_account(account_id)
-                if pending == 0:
-                    log.debug(f'[{bank_name}] no pending payments — skipping')
-                    continue
-
-                if not is_due_for_scrape(account):
-                    log.debug(f'[{bank_name}] not yet due — skipping')
-                    continue
-
-                log.info(f'[{bank_name}] due — pending={pending}')
+                if pending > 0:
+                    if not is_due_for_scrape(account):
+                        log.debug(f'[{bank_name}] not yet due (active) — skipping')
+                        continue
+                    log.info(f'[{bank_name}] due — pending={pending}')
+                else:
+                    if not is_due_for_scrape(account, IDLE_SCRAPE_INTERVAL_MINUTES):
+                        log.debug(f'[{bank_name}] not yet due (idle baseline) — skipping')
+                        continue
+                    log.info(
+                        f'[{bank_name}] due — idle baseline '
+                        f'({IDLE_SCRAPE_INTERVAL_MINUTES}min, balance refresh)'
+                    )
                 await run_bank_scrape(account)
 
         except Exception as exc:
