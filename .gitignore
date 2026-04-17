@@ -1,0 +1,55 @@
+# ─── Secrets / env ──────────────────────────────
+.env
+.env.local
+*.env.local
+/api/.env
+/admin/.env
+/scraper/.env
+
+# ─── Databases ──────────────────────────────────
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+/api/database/*.sqlite
+
+# ─── Dependencies ───────────────────────────────
+/api/vendor/
+/admin/vendor/
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+/scraper/venv/
+/scraper/.venv/
+/scraper/*.egg-info/
+
+# ─── Sessions / runtime ─────────────────────────
+/scraper/sessions/
+/scraper/logs/
+/api/logs/
+/api/storage/
+/tmp/
+*.log
+
+# ─── Playwright / browser state ─────────────────
+/scraper/browsers/
+.playwright/
+
+# ─── IDE / OS ───────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.bak
+*.orig
+
+# ─── Composer lock (keep? debatable — keeping for reproducibility) ──
+# /api/composer.lock
+
+# ─── Reference code from LionExpressPay (proprietary — DO NOT publish) ──
+/_reference/

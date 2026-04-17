@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<!--
+  B-CashPay — Payment Link Expired Page
+  ========================================
+  Served by PHP API at GET /p/{token}/expired (or when token lookup returns 'expired').
+
+  PHP placeholder replacements:
+    {{REFERENCE_NUMBER}}  — 7-digit reference number
+    {{EXPIRED_AT}}        — expiry datetime string
+    {{SERVICE_NAME}}      — merchant name
+    {{RETURN_URL}}        — URL back to merchant
+    {{SUPPORT_EMAIL}}     — support contact email (optional)
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow">
+  <title>お支払いリンクの有効期限切れ — B-CashPay</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+
+<div class="bcp" style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;">
+  <div class="bcp-state-card" style="margin:0 auto;">
+
+    <!-- Brand -->
+    <div style="font-size:12px;font-weight:800;color:#1a56db;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:20px;text-align:center;">
+      B-CashPay
+    </div>
+
+    <!-- Icon -->
+    <div class="bcp-state-card__icon bcp-state-card__icon--expired" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <polyline points="12 6 12 12 16 14"/>
+      </svg>
+    </div>
+
+    <h1 class="bcp-state-card__title">お支払いリンクの有効期限切れ</h1>
+
+    <div class="bcp-state-card__body">
+      <p>このお支払いリンクは有効期限（{{EXPIRED_AT}}）を過ぎたため、無効になりました。</p>
+      <p style="margin-top:12px;">お支払いを続けるには、ショップより新しいお支払いリンクを発行してもらう必要があります。</p>
+      <p style="margin-top:12px;font-size:13px;color:#94a3b8;">参照番号: {{REFERENCE_NUMBER}}</p>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+      <a href="{{RETURN_URL}}" class="bcp-state-card__btn bcp-state-card__btn--primary" rel="noopener">
+        {{SERVICE_NAME}}に戻る
+      </a>
+      <a
+        href="mailto:{{SUPPORT_EMAIL}}?subject=お支払いリンク再発行依頼 (参照番号: {{REFERENCE_NUMBER}})"
+        class="bcp-state-card__btn bcp-state-card__btn--secondary"
+      >
+        サポートに連絡
+      </a>
+    </div>
+
+    <p style="margin-top:24px;font-size:11px;color:#94a3b8;text-align:center;">
+      Powered by B-CashPay
+    </p>
+
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+    "name": "bcashpay/admin",
+    "description": "B-CashPay admin dashboard",
+    "type": "project",
+    "require": {
+        "php": ">=8.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "BCashPay\\": "../api/src/",
+            "BCashPay\\Admin\\": "src/"
+        },
+        "files": [
+            "../api/src/helpers.php"
+        ]
+    },
+    "config": {
+        "vendor-dir": "vendor",
+        "optimize-autoloader": true
+    }
+}

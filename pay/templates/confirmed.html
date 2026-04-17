@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<!--
+  B-CashPay — Payment Confirmed Page
+  ====================================
+  Served by PHP API at GET /p/{token}/confirmed (or redirected to from payment.html).
+
+  PHP placeholder replacements:
+    {{AMOUNT_FORMATTED}}   — formatted amount e.g. "12,000"
+    {{AMOUNT}}             — raw integer e.g. "12000"
+    {{REFERENCE_NUMBER}}   — 7-digit reference e.g. "1234567"
+    {{CONFIRMED_AT}}       — datetime e.g. "2026/04/16 14:30"
+    {{SERVICE_NAME}}       — merchant name e.g. "Example Shop"
+    {{RETURN_URL}}         — URL to redirect back to merchant
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow">
+  <title>入金確認済み — B-CashPay</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../assets/css/style.css">
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="bcp-confirmed-page">
+  <div class="bcp-confirmed-page__card">
+
+    <!-- Brand -->
+    <div style="font-size:12px;font-weight:800;color:#059669;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:20px;">
+      B-CashPay
+    </div>
+
+    <!-- Animated check icon -->
+    <div class="bcp-confirmed-page__check" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6L9 17l-5-5"/>
+      </svg>
+    </div>
+
+    <h1 class="bcp-confirmed-page__title">入金確認済み</h1>
+    <p class="bcp-confirmed-page__sub">
+      お振込みを確認しました。<br>ご利用ありがとうございます。
+    </p>
+
+    <!-- Summary box -->
+    <div class="bcp-confirmed-page__summary" role="region" aria-label="お支払い内容">
+      <div class="bcp-confirmed-page__summary-row">
+        <span class="bcp-confirmed-page__summary-label">振込金額</span>
+        <span class="bcp-confirmed-page__summary-value bcp-confirmed-page__summary-value--amount">
+          {{AMOUNT_FORMATTED}}円
+        </span>
+      </div>
+      <div class="bcp-confirmed-page__summary-row">
+        <span class="bcp-confirmed-page__summary-label">参照番号</span>
+        <span class="bcp-confirmed-page__summary-value" style="font-family:monospace;">
+          {{REFERENCE_NUMBER}}
+        </span>
+      </div>
+      <div class="bcp-confirmed-page__summary-row">
+        <span class="bcp-confirmed-page__summary-label">確認日時</span>
+        <span class="bcp-confirmed-page__summary-value">
+          {{CONFIRMED_AT}}
+        </span>
+      </div>
+    </div>
+
+    <!-- Return button -->
+    <a
+      href="{{RETURN_URL}}"
+      class="bcp-confirmed-page__btn"
+      rel="noopener"
+    >
+      {{SERVICE_NAME}}に戻る
+    </a>
+
+    <!-- Powered by -->
+    <p style="margin-top:20px;font-size:11px;color:#94a3b8;text-align:center;">
+      Powered by B-CashPay
+    </p>
+
+  </div>
+</div>
+
+</body>
+</html>

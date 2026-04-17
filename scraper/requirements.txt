@@ -1,0 +1,23 @@
+# B-CashPay Bank Scraper — Python Dependencies
+
+# Browser automation
+playwright>=1.40.0
+
+# HTTP client for webhook calls
+aiohttp>=3.9.0
+
+# FastAPI control server
+fastapi>=0.109.0
+uvicorn[standard]>=0.25.0
+
+# Database
+pymysql>=1.1.0
+
+# TOTP support (for bank 2FA)
+pyotp>=2.9.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# Utilities
+pydantic>=2.5.0

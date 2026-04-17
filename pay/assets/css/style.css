@@ -1,0 +1,1001 @@
+/* ============================================================
+   B-CashPay Payment Page — Component Styles
+   Adapted from LionExpress bank_transfer.twig design
+
+   Color tokens:
+     Primary    #1a56db  blue
+     Primary-d  #1e40af  dark blue
+     Success    #059669  green (confirmed)
+     Surface    #ffffff  card bg
+     Bg         #f8fafc  page bg
+     Text       #0f172a  main
+     Muted      #64748b  secondary
+     Warning    #d97706  deadline/amber
+     Danger     #dc2626  error/warning
+   ============================================================ */
+
+/* ── Reset & Base ─────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: #f8fafc;
+  min-height: 100vh;
+  font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans',
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+}
+
+/* ── Layout wrapper ───────────────────────────────────────── */
+.bcp {
+  background: #f8fafc;
+  min-height: 100vh;
+  padding: 0 16px 80px;
+}
+
+.bcp__inner {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+/* ── Page header ──────────────────────────────────────────── */
+.bcp-head {
+  text-align: center;
+  padding: 40px 0 28px;
+}
+
+.bcp-head__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1a56db;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+
+.bcp-head__brand-dot {
+  width: 8px;
+  height: 8px;
+  background: #059669;
+  border-radius: 50%;
+}
+
+.bcp-head__icon {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 20px;
+  background: #1a56db;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 30px rgba(26, 86, 219, 0.25);
+}
+
+.bcp-head__icon svg {
+  width: 36px;
+  height: 36px;
+  color: #fff;
+  stroke-width: 2.2;
+}
+
+.bcp-head__icon--confirmed {
+  background: #059669;
+  box-shadow: 0 10px 30px rgba(5, 150, 105, 0.25);
+}
+
+.bcp-head__icon--expired {
+  background: #d97706;
+  box-shadow: 0 10px 30px rgba(217, 119, 6, 0.25);
+}
+
+.bcp-head__icon--error {
+  background: #dc2626;
+  box-shadow: 0 10px 30px rgba(220, 38, 38, 0.25);
+}
+
+.bcp-head__title {
+  font-size: 28px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 10px;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.bcp-head__sub {
+  font-size: 15px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.bcp-head__sub strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+/* ── Status badge ─────────────────────────────────────────── */
+.bcp-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 16px;
+}
+
+.bcp-status--pending {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.bcp-status--confirmed {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+.bcp-status--expired {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.bcp-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: bcp-pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes bcp-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Deadline banner ──────────────────────────────────────── */
+.bcp-deadline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fffbeb;
+  border: 1.5px solid #fde68a;
+  border-radius: 14px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  color: #78350f;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.bcp-deadline svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: #d97706;
+}
+
+.bcp-deadline strong {
+  color: #78350f;
+  font-weight: 800;
+}
+
+/* ── Generic card ─────────────────────────────────────────── */
+.bcp-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.bcp-card__label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 24px 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #1a56db;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bcp-card__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: #1a56db;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+
+.bcp-card__title {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  padding: 6px 24px 0;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.bcp-card__body {
+  padding: 20px 24px 24px;
+}
+
+/* ── Amount card — hero number ────────────────────────────── */
+.bcp-amount {
+  text-align: center;
+  padding: 14px 0 22px;
+}
+
+.bcp-amount__value {
+  font-size: 64px;
+  font-weight: 900;
+  color: #1a56db;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.bcp-amount__unit {
+  font-size: 24px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.bcp-amount__note {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+/* ── Bank details grid ────────────────────────────────────── */
+.bcp-bank-grid {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 0;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 8px;
+}
+
+.bcp-bank-grid > div {
+  padding: 14px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+}
+
+.bcp-bank-grid > div:nth-last-child(-n+2) {
+  border-bottom: none;
+}
+
+.bcp-bank-grid__label {
+  color: #64748b;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.bcp-bank-grid__value {
+  color: #0f172a;
+  font-weight: 700;
+  font-size: 15px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bcp-bank-grid__value--mono {
+  font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+}
+
+.bcp-bank-grid__value--kana {
+  font-family: 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', sans-serif;
+  letter-spacing: 0.03em;
+}
+
+/* ── Skeleton loading ─────────────────────────────────────── */
+.bcp-skeleton {
+  display: inline-block;
+  width: 120px;
+  height: 16px;
+  background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: bcp-shimmer 1.3s infinite linear;
+}
+
+@keyframes bcp-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── Reference hero card (blue gradient) ──────────────────── */
+.bcp-ref-card {
+  background: linear-gradient(135deg, #1e40af 0%, #1a56db 60%, #2563eb 100%);
+  color: #fff;
+  border: none;
+}
+
+.bcp-ref-card .bcp-card__label {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.bcp-ref-card .bcp-card__step {
+  background: #fff;
+  color: #1e40af;
+}
+
+.bcp-ref-card .bcp-card__title {
+  color: #fff;
+}
+
+.bcp-ref {
+  padding: 16px 0 6px;
+  text-align: center;
+}
+
+.bcp-ref__label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+
+.bcp-ref__code {
+  display: inline-block;
+  font-size: 44px;
+  font-weight: 900;
+  color: #fff;
+  font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  margin: 0;
+  padding: 10px 24px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+}
+
+.bcp-ref__hint {
+  margin: 16px 0 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1.6;
+}
+
+.bcp-ref__hint strong {
+  display: block;
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+/* ── Copy buttons ─────────────────────────────────────────── */
+.bcp-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 16px 24px;
+  margin-top: 18px;
+  background: #0f172a;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.05s;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1;
+}
+
+.bcp-copy-btn:hover {
+  background: #1e293b;
+}
+
+.bcp-copy-btn:active {
+  transform: translateY(1px);
+}
+
+.bcp-copy-btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* White variant (on blue gradient card) */
+.bcp-copy-btn--on-blue {
+  background: #fff;
+  color: #1e40af;
+}
+
+.bcp-copy-btn--on-blue:hover {
+  background: #f1f5f9;
+}
+
+/* Small inline variant */
+.bcp-copy-btn--small {
+  width: auto;
+  padding: 6px 12px;
+  margin: 0;
+  background: #f1f5f9;
+  color: #0f172a;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bcp-copy-btn--small:hover {
+  background: #e2e8f0;
+}
+
+.bcp-copy-btn--small svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Copied state */
+.bcp-copy-btn.is-copied {
+  background: #059669;
+}
+
+.bcp-copy-btn--on-blue.is-copied {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.bcp-copy-btn.is-copied::before {
+  content: '✓  ';
+}
+
+/* ── Steps list ────────────────────────────────────────────── */
+.bcp-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.bcp-step {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.bcp-step__num {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  background: #dbeafe;
+  color: #1a56db;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.bcp-step__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.bcp-step__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 6px 0 4px;
+}
+
+.bcp-step__desc {
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.bcp-step__desc strong {
+  color: #1a56db;
+  font-weight: 700;
+}
+
+.bcp-ref-inline {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 4px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ── Warning / info banners ───────────────────────────────── */
+.bcp-warn {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #7f1d1d;
+}
+
+.bcp-warn:last-child {
+  margin-bottom: 0;
+}
+
+.bcp-warn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #dc2626;
+  margin-top: 1px;
+}
+
+.bcp-warn strong {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.bcp-warn--info {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+  color: #0c4a6e;
+}
+
+.bcp-warn--info svg {
+  color: #0284c7;
+}
+
+.bcp-warn--info strong {
+  color: #075985;
+}
+
+/* ── Order meta footer ──────────────────────────────────────── */
+.bcp-meta {
+  text-align: center;
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 28px 0 10px;
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+/* ── Action buttons ─────────────────────────────────────────── */
+.bcp-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.bcp-actions a,
+.bcp-actions button {
+  flex: 1;
+  min-width: 140px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 10px;
+  text-decoration: none;
+  text-align: center;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.bcp-actions a:hover,
+.bcp-actions button:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+  text-decoration: none;
+}
+
+/* ── Toast notification ─────────────────────────────────────── */
+.bcp-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100%);
+  background: #0f172a;
+  color: #fff;
+  padding: 14px 22px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 9999;
+  pointer-events: none;
+  max-width: calc(100vw - 32px);
+}
+
+.bcp-toast.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.bcp-toast svg {
+  width: 18px;
+  height: 18px;
+  color: #10b981;
+  flex-shrink: 0;
+}
+
+/* ── Confirmed overlay (full-page animation) ──────────────── */
+.bcp-confirmed-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: #059669;
+  z-index: 10000;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  padding: 24px;
+  animation: bcp-confirmed-bg 0.5s ease-out;
+}
+
+.bcp-confirmed-overlay.is-active {
+  display: flex;
+}
+
+@keyframes bcp-confirmed-bg {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.bcp-confirmed-overlay__check {
+  width: 96px;
+  height: 96px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 28px;
+  animation: bcp-check-pop 0.4s 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+@keyframes bcp-check-pop {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.bcp-confirmed-overlay__check svg {
+  width: 48px;
+  height: 48px;
+  color: #fff;
+  stroke-width: 3;
+}
+
+.bcp-confirmed-overlay__title {
+  font-size: 32px;
+  font-weight: 900;
+  color: #fff;
+  margin: 0 0 12px;
+  letter-spacing: -0.02em;
+}
+
+.bcp-confirmed-overlay__sub {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.9);
+  margin: 0 0 32px;
+  line-height: 1.6;
+}
+
+.bcp-confirmed-overlay__btn {
+  display: inline-block;
+  padding: 14px 32px;
+  background: #fff;
+  color: #059669;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.05s;
+}
+
+.bcp-confirmed-overlay__btn:hover {
+  background: #f0fdf4;
+}
+
+.bcp-confirmed-overlay__btn:active {
+  transform: translateY(1px);
+}
+
+/* ── Polling status bar ───────────────────────────────────── */
+.bcp-poll-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #0c4a6e;
+}
+
+.bcp-poll-bar__spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #bae6fd;
+  border-top-color: #0284c7;
+  border-radius: 50%;
+  animation: bcp-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes bcp-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Expired / error state cards ─────────────────────────── */
+.bcp-state-card {
+  max-width: 480px;
+  margin: 80px auto;
+  text-align: center;
+  padding: 48px 32px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+
+.bcp-state-card__icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bcp-state-card__icon--expired {
+  background: #fef3c7;
+}
+
+.bcp-state-card__icon--expired svg {
+  color: #d97706;
+}
+
+.bcp-state-card__icon--error {
+  background: #fef2f2;
+}
+
+.bcp-state-card__icon--error svg {
+  color: #dc2626;
+}
+
+.bcp-state-card__icon svg {
+  width: 40px;
+  height: 40px;
+}
+
+.bcp-state-card__title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 12px;
+}
+
+.bcp-state-card__body {
+  font-size: 15px;
+  color: #64748b;
+  line-height: 1.7;
+  margin: 0 0 28px;
+}
+
+.bcp-state-card__btn {
+  display: inline-block;
+  padding: 12px 28px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.bcp-state-card__btn--primary {
+  background: #1a56db;
+  color: #fff;
+}
+
+.bcp-state-card__btn--primary:hover {
+  background: #1e40af;
+}
+
+.bcp-state-card__btn--secondary {
+  background: #f1f5f9;
+  color: #475569;
+  margin-left: 10px;
+}
+
+.bcp-state-card__btn--secondary:hover {
+  background: #e2e8f0;
+}
+
+/* ── Confirmed page (standalone) ─────────────────────────── */
+.bcp-confirmed-page {
+  min-height: 100vh;
+  background: linear-gradient(160deg, #059669 0%, #047857 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.bcp-confirmed-page__card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 48px 32px;
+  max-width: 480px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.bcp-confirmed-page__check {
+  width: 80px;
+  height: 80px;
+  background: #d1fae5;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 24px;
+  animation: bcp-check-pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+.bcp-confirmed-page__check svg {
+  width: 40px;
+  height: 40px;
+  color: #059669;
+  stroke-width: 3;
+}
+
+.bcp-confirmed-page__title {
+  font-size: 28px;
+  font-weight: 900;
+  color: #065f46;
+  margin: 0 0 10px;
+  letter-spacing: -0.02em;
+}
+
+.bcp-confirmed-page__sub {
+  font-size: 15px;
+  color: #64748b;
+  margin: 0 0 28px;
+  line-height: 1.6;
+}
+
+.bcp-confirmed-page__summary {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 28px;
+  text-align: left;
+}
+
+.bcp-confirmed-page__summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+.bcp-confirmed-page__summary-row:not(:last-child) {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.bcp-confirmed-page__summary-label {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.bcp-confirmed-page__summary-value {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.bcp-confirmed-page__summary-value--amount {
+  font-size: 18px;
+  color: #059669;
+}
+
+.bcp-confirmed-page__btn {
+  display: inline-block;
+  padding: 14px 32px;
+  background: #059669;
+  color: #fff;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+}
+
+.bcp-confirmed-page__btn:hover {
+  background: #047857;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .bcp { padding: 0 12px 80px; }
+  .bcp-head { padding: 28px 0 20px; }
+  .bcp-head__title { font-size: 24px; }
+  .bcp-amount__value { font-size: 52px; }
+  .bcp-ref__code { font-size: 34px; padding: 8px 16px; letter-spacing: 0.06em; }
+  .bcp-card__title { font-size: 18px; }
+  .bcp-card__body { padding: 18px 18px 20px; }
+  .bcp-bank-grid { grid-template-columns: 88px 1fr; }
+  .bcp-bank-grid__value { font-size: 14px; }
+  .bcp-bank-grid__value--mono { font-size: 16px; }
+  .bcp-confirmed-page__card { padding: 36px 24px; }
+  .bcp-confirmed-page__title { font-size: 24px; }
+  .bcp-state-card { margin: 40px auto; }
+}
