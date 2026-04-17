@@ -511,6 +511,7 @@ async def run_bank_scrape(account_row: dict, headless: bool = True) -> bool:
     matched = await webhook.send_deposits(
         bank_account_id=account_id,
         transactions=transactions,
+        current_balance=adapter.current_balance,
     )
 
     duration = time.monotonic() - start_time

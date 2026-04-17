@@ -64,6 +64,7 @@ class WebhookSender:
         self,
         bank_account_id: int,
         transactions: List[RawTransaction],
+        current_balance: Optional[int] = None,
     ) -> int:
         """POST a batch of deposits to the API for matching.
 
@@ -74,17 +75,22 @@ class WebhookSender:
         Args:
             bank_account_id: The bank_accounts.id this batch belongs to.
             transactions: List of RawTransaction objects extracted by the adapter.
+            current_balance: Latest observed account balance in JPY, or None
+                             when the adapter could not capture it.  Forwarded
+                             verbatim so the API persists it on the
+                             bank_accounts row even when deposits is empty.
 
         Returns:
             Number of deposits successfully matched to payment links.
         """
-        if not transactions:
-            log.info('[webhook] no transactions to send — skipping')
+        if not transactions and current_balance is None:
+            log.info('[webhook] no transactions or balance to send — skipping')
             return 0
 
         payload: dict = {
             'bank_account_id': bank_account_id,
             'sent_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'current_balance': current_balance,
             'deposits': [
                 {
                     'depositor_name': txn.depositor_name,

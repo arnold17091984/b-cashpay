@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS `bank_accounts` (
     `scrape_last_error_at` TIMESTAMP NULL DEFAULT NULL,
     `scrape_last_error_message` TEXT DEFAULT NULL,
     `scrape_consecutive_failures` INT UNSIGNED NOT NULL DEFAULT 0,
+    `current_balance` BIGINT DEFAULT NULL COMMENT 'Latest observed account balance in JPY',
+    `balance_updated_at` TIMESTAMP NULL DEFAULT NULL COMMENT 'When current_balance was last captured',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),

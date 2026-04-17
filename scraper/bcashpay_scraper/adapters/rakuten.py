@@ -365,7 +365,11 @@ class RakutenBusinessAdapter(BankAdapter):
             col 0 : 取引日          e.g. "2026/04/16"
             col 1 : 入出金内容       e.g. "セブン銀行 ... タナカ タロウ"
             col 2 : 入出金（円）     signed — positive = deposit, negative = withdrawal
-            col 3 : 残高（円）       ignored
+            col 3 : 残高（円）       running balance — latest row = current balance
+
+        As a side-effect the current account balance (balance column of the
+        newest row) is captured on ``self.current_balance`` so the runner can
+        forward it to the API.  None when no rows are visible.
 
         Rows are extracted via JS evaluate() with direct-child selectors so
         that cells from nested layout tables do not bleed into the data.
@@ -393,6 +397,13 @@ class RakutenBusinessAdapter(BankAdapter):
             return out;
         }""")
         log.info(f'[{self.bank_name}] found {len(rows)} transaction rows')
+
+        # Newest row first → its balance column is the current account balance.
+        if rows:
+            latest_balance = self._parse_signed_amount(rows[0][3])
+            if latest_balance != 0 or rows[0][3].strip():
+                self.current_balance = latest_balance
+                log.info(f'[{self.bank_name}] current balance: {latest_balance:,} JPY')
 
         results: List[RawTransaction] = []
         for i, cells in enumerate(rows):

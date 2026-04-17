@@ -64,12 +64,11 @@ class ScraperWebhookController
             json_error('Invalid JSON payload', 400);
         }
 
-        $deposits      = $data['deposits'] ?? [];
-        $bankAccountId = isset($data['bank_account_id']) ? (int) $data['bank_account_id'] : null;
-
-        if (!is_array($deposits) || count($deposits) === 0) {
-            json_response(['success' => true, 'matched' => 0, 'message' => 'No deposits received']);
-        }
+        $deposits       = $data['deposits'] ?? [];
+        $bankAccountId  = isset($data['bank_account_id']) ? (int) $data['bank_account_id'] : null;
+        $currentBalance = array_key_exists('current_balance', $data) && is_numeric($data['current_balance'])
+            ? (int) $data['current_balance']
+            : null;
 
         // Verify bank account exists when provided
         if ($bankAccountId !== null) {
@@ -80,6 +79,27 @@ class ScraperWebhookController
             if ($bankAccount === null) {
                 json_error('Bank account not found', 404);
             }
+        }
+
+        // Persist balance whenever the scraper reports one, independent of
+        // whether there are deposits to match.
+        if ($bankAccountId !== null && $currentBalance !== null) {
+            $this->db->update(
+                'bank_accounts',
+                [
+                    'current_balance'    => $currentBalance,
+                    'balance_updated_at' => now_jst(),
+                ],
+                ['id' => $bankAccountId]
+            );
+        }
+
+        if (!is_array($deposits) || count($deposits) === 0) {
+            json_response([
+                'success' => true,
+                'matched' => 0,
+                'message' => $currentBalance !== null ? 'Balance updated, no deposits' : 'No deposits received',
+            ]);
         }
 
         $matched  = 0;
