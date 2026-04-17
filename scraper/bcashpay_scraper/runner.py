@@ -189,9 +189,9 @@ def load_active_bank_accounts() -> List[dict]:
     statuses = ('active', 'login_failed', 'scrape_failed')
 
     if DB_DRIVER == 'sqlite':
-        placeholders = ','.join('?' * len(statuses))
+        placeholders = ','.join(['?'] * len(statuses))
     else:
-        placeholders = ','.join('%s' * len(statuses))
+        placeholders = ','.join(['%s'] * len(statuses))
 
     query = f"""
         SELECT id, bank_name, account_number,
