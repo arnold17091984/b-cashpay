@@ -25,6 +25,7 @@ session_name($sessionName);
 session_start([
     'cookie_httponly' => true,
     'cookie_samesite' => 'Lax',
+    'cookie_secure'   => true,  // TLS-only — admin panel is HTTPS-only in production
 ]);
 
 // ── Config override for SQLite path ─────────────────────────────────────────

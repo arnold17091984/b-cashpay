@@ -143,31 +143,39 @@ class TelegramCommandHandler
             return;
         }
 
+        // Atomic claim: a single UPDATE marks the token consumed, filtered
+        // on token + consumed_at IS NULL + expires_at > NOW.  If two
+        // Telegram users race on the same token (e.g., leak in a shared
+        // chat), only one sees rowCount() == 1 and proceeds.
         try {
-            $row = $this->db->fetchOne(
-                'SELECT token, admin_user_id, expires_at, consumed_at
-                 FROM telegram_bind_tokens
-                 WHERE token = ? LIMIT 1',
-                [$token]
+            $claim = $this->db->query(
+                'UPDATE telegram_bind_tokens
+                    SET consumed_at = ?
+                  WHERE token = ?
+                    AND consumed_at IS NULL
+                    AND expires_at > ?',
+                [now_jst(), $token, now_jst()]
             );
-        } catch (Throwable $e) {
+        } catch (Throwable) {
             $this->tg->sendMessage($chatId, '内部エラーで紐付けに失敗しました', null, $messageId);
             return;
         }
+        if ($claim->rowCount() === 0) {
+            // Could be: not found, already consumed, or expired — tell the
+            // operator it's invalid without distinguishing (prevents a
+            // tokenstatus oracle).
+            $this->tg->sendMessage($chatId, 'トークンが無効か使用済みです。管理画面で再発行してください。', null, $messageId);
+            return;
+        }
 
+        $row = $this->db->fetchOne(
+            'SELECT admin_user_id FROM telegram_bind_tokens WHERE token = ? LIMIT 1',
+            [$token]
+        );
         if ($row === null) {
-            $this->tg->sendMessage($chatId, 'トークンが見つかりません。管理画面で再発行してください。', null, $messageId);
+            $this->tg->sendMessage($chatId, '内部エラー（トークン記録なし）', null, $messageId);
             return;
         }
-        if ($row['consumed_at'] !== null) {
-            $this->tg->sendMessage($chatId, 'このトークンは使用済みです。', null, $messageId);
-            return;
-        }
-        if (strtotime((string) $row['expires_at']) < time()) {
-            $this->tg->sendMessage($chatId, 'トークンの有効期限が切れています。再発行してください。', null, $messageId);
-            return;
-        }
-
         $adminId = (int) $row['admin_user_id'];
 
         // Guard against the same Telegram user re-binding to a different admin.
@@ -180,18 +188,11 @@ class TelegramCommandHandler
             return;
         }
 
-        $this->db->transaction(function () use ($adminId, $fromId, $token) {
-            $this->db->update(
-                'admin_users',
-                ['telegram_user_id' => $fromId, 'telegram_enabled' => 1],
-                ['id' => $adminId]
-            );
-            $this->db->update(
-                'telegram_bind_tokens',
-                ['consumed_at' => now_jst()],
-                ['token' => $token]
-            );
-        });
+        $this->db->update(
+            'admin_users',
+            ['telegram_user_id' => $fromId, 'telegram_enabled' => 1],
+            ['id' => $adminId]
+        );
 
         $admin = $this->db->fetchOne('SELECT username, name FROM admin_users WHERE id = ?', [$adminId]);
         $who   = htmlspecialchars((string) ($admin['name'] ?? $admin['username'] ?? '?'), ENT_QUOTES, 'UTF-8');

@@ -294,6 +294,19 @@ class PaymentLinkService
     public function createChildFromTemplate(array $template, int $amount, ?string $kana): array
     {
         return $this->db->transaction(function () use ($template, $amount, $kana) {
+            // Reject spawn when the template's bank has been deactivated
+            // since the template was issued.  Without this guard the child
+            // link would display the deactivated bank's account and the
+            // scraper (which skips is_active=0 banks) would never poll
+            // for the deposit, leaving the customer's payment in limbo.
+            $bank = $this->db->fetchOne(
+                'SELECT id FROM bank_accounts WHERE id = ? AND is_active = 1 LIMIT 1',
+                [(int) $template['bank_account_id']]
+            );
+            if ($bank === null) {
+                throw new RuntimeException('このテンプレートの振込先銀行は現在無効です。別のリンクをお使いください。');
+            }
+
             $referenceNumber = $this->referenceGenerator->generate();
             $childId    = 'bp_' . generate_ulid();
             $childToken = bin2hex(random_bytes(16));

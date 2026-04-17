@@ -27,6 +27,28 @@ load_env(dirname(__DIR__) . '/.env');
 // Set JST timezone globally
 date_default_timezone_set('Asia/Tokyo');
 
+// ── Security headers (apply to every response) ────────────────────────────────
+// HSTS tells browsers to always use TLS for this host for a year.
+// frame-ancestors blocks clickjacking on the payment + confirmed pages.
+// no-referrer keeps the /p/{token} URL (a capability) out of third-party
+// Referer headers when customers click outbound links on the page.
+// CSP is conservative: self-hosted scripts/styles/images only + the one
+// external font CDN (fonts.googleapis.com, rsms.me) the payment page uses.
+header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('Referrer-Policy: no-referrer');
+header(
+    "Content-Security-Policy: "
+    . "default-src 'self'; "
+    . "script-src 'self' 'unsafe-inline'; "
+    . "style-src 'self' 'unsafe-inline' https://rsms.me https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+    . "font-src 'self' https://rsms.me https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
+    . "img-src 'self' data:; "
+    . "connect-src 'self'; "
+    . "frame-ancestors 'none'"
+);
+
 // ── CORS ──────────────────────────────────────────────────────────────────────
 // Restrict to first-party origins.  The public status-poll and payment-page
 // routes are same-origin only (served from b-pay.ink itself), and the admin

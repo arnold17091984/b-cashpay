@@ -66,7 +66,19 @@ class TelegramWebhookController
         }
 
         // ── 3. Parse + idempotency gate ──────────────────────────────────
-        $raw  = (string) file_get_contents('php://input');
+        // Cap inbound body at 1 MB so a crafted oversized payload cannot
+        // exhaust PHP memory or starve the worker on json_decode.  Telegram
+        // itself normally sends <10 KB updates.
+        $maxBody = 1_048_576;
+        $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+        if ($contentLength > $maxBody) {
+            json_response(['success' => true, 'note' => 'oversize'], 200);
+        }
+        $fp  = fopen('php://input', 'rb');
+        $raw = $fp !== false ? (string) stream_get_contents($fp, $maxBody) : '';
+        if ($fp !== false) {
+            fclose($fp);
+        }
         $data = json_decode($raw, true);
         if (!is_array($data) || !isset($data['update_id'])) {
             json_response(['success' => true], 200);
@@ -74,6 +86,24 @@ class TelegramWebhookController
 
         $updateId = (int) $data['update_id'];
         [$chatId, $userId, $messageId, $kind] = $this->extractMeta($data);
+
+        // Chat-ID allowlist.  TELEGRAM_ALLOWED_CHAT_IDS (comma-separated
+        // env) ensures the bot only responds in chats the operator
+        // explicitly authorised — a defence in depth in case the bot is
+        // accidentally added to another group.  When the allowlist is
+        // empty, behaviour is unchanged (accept any chat passing the
+        // secret check).
+        $allowedChatIds = array_map(
+            static fn($v) => (int) $v,
+            (array) config('telegram.allowed_chat_ids', [])
+        );
+        if (
+            !empty($allowedChatIds)
+            && $chatId !== null
+            && !in_array((int) $chatId, $allowedChatIds, true)
+        ) {
+            json_response(['success' => true, 'note' => 'chat-not-allowed'], 200);
+        }
 
         try {
             $this->db->insert('telegram_updates', [

@@ -203,17 +203,26 @@ class PaymentPageController
         }
 
         // ── Branch on link_type ───────────────────────────────────────────
-        if ($row['link_type'] === 'template') {
-            $child = $this->service->createChildFromTemplate($row, $amount, $kana);
-            header('Location: /p/' . $child['token'], true, 303);
-            exit;
-        }
+        // Catch the RuntimeException that PaymentLinkService throws when
+        // the template's bank account has been deactivated or the
+        // awaiting_input row has already been claimed by a concurrent
+        // submitter, and re-render the form with a human-readable message
+        // rather than a 500.
+        try {
+            if ($row['link_type'] === 'template') {
+                $child = $this->service->createChildFromTemplate($row, $amount, $kana);
+                header('Location: /p/' . $child['token'], true, 303);
+                exit;
+            }
 
-        // awaiting_input: upgrade the existing row in place, transactionally,
-        // so two concurrent submits can't both succeed.
-        $this->service->finaliseAwaitingInput($row, $amount, $kana);
-        header('Location: /p/' . $token, true, 303);
-        exit;
+            // awaiting_input: upgrade the existing row in place, transactionally,
+            // so two concurrent submits can't both succeed.
+            $this->service->finaliseAwaitingInput($row, $amount, $kana);
+            header('Location: /p/' . $token, true, 303);
+            exit;
+        } catch (\RuntimeException $e) {
+            $this->show($token, $e->getMessage(), $prev);
+        }
     }
 
     /**
