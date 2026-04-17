@@ -72,6 +72,13 @@ try {
  */
 function dispatch(string $method, string $path): void
 {
+    // ── Static assets for the customer payment page ───────────────────────────
+    // Serves /assets/* from /pay/assets/* — used by payment.html / confirmed.html / expired.html
+    if ($method === 'GET' && str_starts_with($path, '/assets/')) {
+        serveStaticAsset($path);
+        return;
+    }
+
     // ── Health check ──────────────────────────────────────────────────────────
     if ($method === 'GET' && $path === '/api/v1/health') {
         handleHealth();
@@ -231,4 +238,39 @@ function applyRateLimit(string $key, int $limit, int $windowSeconds, int $errorS
     }
 
     @file_put_contents($file, json_encode($bucket), LOCK_EX);
+}
+
+/**
+ * Serve a static file from the /pay/assets/ directory.
+ * Only serves files inside the assets dir, no path traversal.
+ */
+function serveStaticAsset(string $path): void
+{
+    $requested = preg_replace('#^/assets/#', '', $path);
+    $requested = str_replace(['..', '\\'], '', (string) $requested);
+
+    $base = dirname(__DIR__, 2) . '/pay/assets';
+    $full = $base . '/' . $requested;
+
+    if (!is_file($full)) {
+        http_response_code(404);
+        exit('Not found');
+    }
+
+    $ext = strtolower(pathinfo($full, PATHINFO_EXTENSION));
+    $mime = match ($ext) {
+        'css'           => 'text/css; charset=utf-8',
+        'js'            => 'application/javascript; charset=utf-8',
+        'svg'           => 'image/svg+xml',
+        'png'           => 'image/png',
+        'jpg', 'jpeg'   => 'image/jpeg',
+        'webp'          => 'image/webp',
+        'woff', 'woff2' => 'font/' . $ext,
+        default         => 'application/octet-stream',
+    };
+
+    header('Content-Type: ' . $mime);
+    header('Cache-Control: public, max-age=300');
+    readfile($full);
+    exit;
 }

@@ -2,15 +2,13 @@
 <!--
   B-CashPay — Payment Confirmed Page
   ====================================
-  Served by PHP API at GET /p/{token}/confirmed (or redirected to from payment.html).
-
   PHP placeholder replacements:
     {{AMOUNT_FORMATTED}}   — formatted amount e.g. "12,000"
     {{AMOUNT}}             — raw integer e.g. "12000"
-    {{REFERENCE_NUMBER}}   — 7-digit reference e.g. "1234567"
+    {{REFERENCE_NUMBER}}   — 7-digit reference e.g. "1000001"
     {{CONFIRMED_AT}}       — datetime e.g. "2026/04/16 14:30"
     {{SERVICE_NAME}}       — merchant name e.g. "Example Shop"
-    {{RETURN_URL}}         — URL to redirect back to merchant
+    {{RETURN_URL}}         — URL to redirect back to merchant (may be empty)
 -->
 <html lang="ja">
 <head>
@@ -19,79 +17,86 @@
   <meta name="robots" content="noindex,nofollow">
   <title>入金確認済み — B-CashPay</title>
 
+  <link rel="preconnect" href="https://rsms.me">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="../assets/css/style.css">
-
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-    }
-  </style>
 </head>
-<body>
+<body class="bcp-page--success">
 
-<div class="bcp-confirmed-page">
-  <div class="bcp-confirmed-page__card">
+<main class="bcp-success-page" aria-label="入金確認完了">
+  <article class="bcp-success-card">
 
     <!-- Brand -->
-    <div style="font-size:12px;font-weight:800;color:#059669;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:20px;">
+    <div class="bcp-success-card__brand" aria-hidden="true">
+      <span style="
+        display:inline-flex;align-items:center;justify-content:center;
+        width:18px;height:18px;border-radius:5px;
+        background:linear-gradient(135deg,#10b981,#059669);
+        box-shadow:0 2px 6px rgba(59,130,246,0.35);
+      ">
+        <svg viewBox="0 0 12 12" fill="none" width="10" height="10">
+          <path d="M3 2h4a2 2 0 010 4H3V2zm0 4h4.5a2 2 0 010 4H3V6z" fill="#fff" fill-opacity="0.9"/>
+        </svg>
+      </span>
       B-CashPay
     </div>
 
     <!-- Animated check icon -->
-    <div class="bcp-confirmed-page__check" aria-hidden="true">
+    <div class="bcp-success-card__icon-wrap" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <path d="M20 6L9 17l-5-5"/>
       </svg>
     </div>
 
-    <h1 class="bcp-confirmed-page__title">入金確認済み</h1>
-    <p class="bcp-confirmed-page__sub">
-      お振込みを確認しました。<br>ご利用ありがとうございます。
+    <h1 class="bcp-success-card__title">入金を確認しました</h1>
+    <p class="bcp-success-card__sub">
+      お振込みありがとうございます。<br>
+      ご購入の手続きが完了しました。
     </p>
 
     <!-- Summary box -->
-    <div class="bcp-confirmed-page__summary" role="region" aria-label="お支払い内容">
-      <div class="bcp-confirmed-page__summary-row">
-        <span class="bcp-confirmed-page__summary-label">振込金額</span>
-        <span class="bcp-confirmed-page__summary-value bcp-confirmed-page__summary-value--amount">
-          {{AMOUNT_FORMATTED}}円
+    <section class="bcp-success-card__summary" aria-label="お支払い内容">
+      <div class="bcp-success-card__row">
+        <span class="bcp-success-card__row-label">振込金額</span>
+        <span class="bcp-success-card__row-value bcp-success-card__row-value--amount">
+          ¥{{AMOUNT_FORMATTED}}
         </span>
       </div>
-      <div class="bcp-confirmed-page__summary-row">
-        <span class="bcp-confirmed-page__summary-label">参照番号</span>
-        <span class="bcp-confirmed-page__summary-value" style="font-family:monospace;">
+      <div class="bcp-success-card__row">
+        <span class="bcp-success-card__row-label">参照番号</span>
+        <span class="bcp-success-card__row-value bcp-success-card__row-value--mono">
           {{REFERENCE_NUMBER}}
         </span>
       </div>
-      <div class="bcp-confirmed-page__summary-row">
-        <span class="bcp-confirmed-page__summary-label">確認日時</span>
-        <span class="bcp-confirmed-page__summary-value">
-          {{CONFIRMED_AT}}
-        </span>
+      <div class="bcp-success-card__row">
+        <span class="bcp-success-card__row-label">確認日時</span>
+        <span class="bcp-success-card__row-value">{{CONFIRMED_AT}}</span>
       </div>
-    </div>
+    </section>
 
-    <!-- Return button -->
+    <!-- Return CTA (hidden if RETURN_URL is empty) -->
     <a
       href="{{RETURN_URL}}"
-      class="bcp-confirmed-page__btn"
-      rel="noopener"
+      class="bcp-success-card__cta"
+      rel="noopener noreferrer"
     >
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 3l5 5-5 5"/>
+      </svg>
       {{SERVICE_NAME}}に戻る
     </a>
 
-    <!-- Powered by -->
-    <p style="margin-top:20px;font-size:11px;color:#94a3b8;text-align:center;">
+    <!-- Footer -->
+    <p style="margin-top:var(--sp-6);font-size:11px;color:var(--fg-3);text-align:center;">
       Powered by B-CashPay
     </p>
 
-  </div>
-</div>
+  </article>
+</main>
 
 </body>
 </html>

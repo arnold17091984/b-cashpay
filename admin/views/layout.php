@@ -1,77 +1,88 @@
 <!DOCTYPE html>
-<html lang="ja" data-bs-theme="dark">
+<html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
     <title><?= htmlspecialchars($title ?? 'Admin', ENT_QUOTES, 'UTF-8') ?> — B-CashPay</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+
+    <link rel="preconnect" href="https://rsms.me/">
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.20/index.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="/assets/css/admin.css">
 </head>
 <body>
 
-<!-- Top Navigation -->
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark border-bottom border-secondary fixed-top px-3" style="height:56px;">
-    <a class="navbar-brand fw-bold text-warning me-4 d-flex align-items-center gap-2" href="/">
-        <i class="bi bi-bank2"></i>
-        B-CashPay
-        <span class="badge bg-warning text-dark ms-1" style="font-size:.65rem;">Admin</span>
-    </a>
-    <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSidebar">
-        <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="d-flex align-items-center ms-auto gap-3">
-        <?php if (!empty($currentUser)): ?>
-        <span class="text-secondary d-none d-md-inline">
-            <i class="bi bi-person-circle me-1"></i>
-            <?= htmlspecialchars($currentUser['name'] ?? $currentUser['username'], ENT_QUOTES, 'UTF-8') ?>
-            <span class="badge bg-secondary ms-1"><?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?></span>
-        </span>
-        <a href="/logout" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-box-arrow-right"></i>
-            <span class="d-none d-md-inline ms-1">ログアウト</span>
-        </a>
-        <?php endif; ?>
-    </div>
-</nav>
+<?php
+$currentPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$navItems = [
+    '/'         => ['bi-grid-1x2',     'ダッシュボード', 'Dashboard'],
+    '/payments' => ['bi-link-45deg',   '決済リンク',     'Payments'],
+    '/deposits' => ['bi-arrow-down-right-circle', '入金履歴',  'Deposits'],
+    '/banks'    => ['bi-bank',         '銀行口座',       'Banks'],
+    '/clients'  => ['bi-key',          'API クライアント', 'Clients'],
+    '/scraper'  => ['bi-activity',     'スクレイパー',    'Scraper'],
+];
+?>
 
-<div class="d-flex" style="padding-top:56px; min-height:100vh;">
+<div class="app">
 
-    <!-- Sidebar -->
-    <nav id="sidebar" class="sidebar d-flex flex-column flex-shrink-0 bg-dark border-end border-secondary">
-        <ul class="nav nav-pills flex-column pt-3 px-2 gap-1">
-            <?php
-            $currentPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-            $navItems = [
-                '/'        => ['bi-speedometer2',  'ダッシュボード'],
-                '/payments'=> ['bi-link-45deg',     '決済リンク'],
-                '/deposits'=> ['bi-cash-coin',      '入金履歴'],
-                '/banks'   => ['bi-building',       '銀行口座'],
-                '/clients' => ['bi-key',            'APIクライアント'],
-                '/scraper' => ['bi-robot',          'スクレイパー'],
-            ];
-            foreach ($navItems as $path => [$icon, $label]):
+    <!-- ─── Sidebar ─── -->
+    <aside class="sidebar">
+        <div class="sidebar__brand">
+            <div class="brand-mark">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 21h18"/>
+                    <path d="M3 10h18"/>
+                    <path d="M5 6l7-3 7 3"/>
+                    <path d="M4 10v11"/>
+                    <path d="M20 10v11"/>
+                    <path d="M8 14v3"/>
+                    <path d="M12 14v3"/>
+                    <path d="M16 14v3"/>
+                </svg>
+            </div>
+            <div class="brand-name">
+                <span>B-CashPay</span>
+                <em>Admin</em>
+            </div>
+        </div>
+
+        <nav class="sidebar__nav">
+            <div class="nav-section-label">OPERATIONS</div>
+            <?php foreach ($navItems as $path => [$icon, $label, $english]):
                 $active = ($currentPath === $path || ($path !== '/' && str_starts_with($currentPath, $path)));
             ?>
-            <li class="nav-item">
-                <a href="<?= $path ?>" class="nav-link <?= $active ? 'active' : 'text-secondary' ?> d-flex align-items-center gap-2">
-                    <i class="bi <?= $icon ?>"></i>
-                    <span class="sidebar-label"><?= $label ?></span>
-                </a>
-            </li>
+            <a href="<?= $path ?>" class="nav-item <?= $active ? 'is-active' : '' ?>">
+                <i class="bi <?= $icon ?>"></i>
+                <span><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></span>
+            </a>
             <?php endforeach; ?>
-        </ul>
-    </nav>
+        </nav>
 
-    <!-- Main Content -->
-    <main class="flex-grow-1 p-4" style="min-width:0;">
+        <?php if (!empty($currentUser)): ?>
+        <div class="sidebar__user">
+            <div class="user-avatar"><?= htmlspecialchars(mb_substr($currentUser['name'] ?? $currentUser['username'], 0, 1), ENT_QUOTES, 'UTF-8') ?></div>
+            <div class="user-info">
+                <div class="user-name"><?= htmlspecialchars($currentUser['name'] ?? $currentUser['username'], ENT_QUOTES, 'UTF-8') ?></div>
+                <div class="user-role"><?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?></div>
+            </div>
+            <a href="/logout" class="user-logout" title="ログアウト">
+                <i class="bi bi-box-arrow-right"></i>
+            </a>
+        </div>
+        <?php endif; ?>
+    </aside>
+
+    <!-- ─── Main ─── -->
+    <main class="main">
         <?php include dirname(__DIR__) . '/views/partials/flash.php'; ?>
         <?= $content ?? '' ?>
     </main>
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <script src="/assets/js/admin.js"></script>
 </body>

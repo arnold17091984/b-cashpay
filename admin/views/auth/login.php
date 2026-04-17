@@ -1,73 +1,78 @@
 <!DOCTYPE html>
-<html lang="ja" data-bs-theme="dark">
+<html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
     <title>ログイン — B-CashPay Admin</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <link rel="preconnect" href="https://rsms.me/">
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.20/index.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <style>
-        body { background: #0d1117; }
-        .login-card { max-width: 420px; }
-    </style>
+    <link rel="stylesheet" href="/assets/css/admin.css">
 </head>
-<body class="d-flex align-items-center justify-content-center" style="min-height:100vh;">
-<div class="login-card w-100 px-3">
-    <div class="text-center mb-4">
-        <div class="display-6 fw-bold text-warning">
-            <i class="bi bi-bank2"></i> B-CashPay
+<body class="login-page">
+
+<div class="login-card">
+    <div class="login-brand">
+        <div class="brand-mark">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 21h18"/>
+                <path d="M3 10h18"/>
+                <path d="M5 6l7-3 7 3"/>
+                <path d="M4 10v11"/>
+                <path d="M20 10v11"/>
+                <path d="M8 14v3"/>
+                <path d="M12 14v3"/>
+                <path d="M16 14v3"/>
+            </svg>
         </div>
-        <p class="text-secondary">管理画面</p>
-    </div>
-
-    <div class="card border-secondary shadow-lg">
-        <div class="card-body p-4">
-            <h5 class="card-title mb-4">
-                <i class="bi bi-person-lock me-2"></i>ログイン
-            </h5>
-
-            <?php if (!empty($error)): ?>
-            <div class="alert alert-danger d-flex align-items-center gap-2">
-                <i class="bi bi-exclamation-triangle-fill"></i>
-                <?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?>
-            </div>
-            <?php endif; ?>
-
-            <form method="POST" action="/login" autocomplete="off">
-                <div class="mb-3">
-                    <label for="username" class="form-label">ユーザー名</label>
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-person"></i></span>
-                        <input
-                            type="text"
-                            id="username"
-                            name="username"
-                            class="form-control"
-                            placeholder="admin"
-                            required
-                            autofocus
-                            value="<?= htmlspecialchars($_POST['username'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
-                        >
-                    </div>
-                </div>
-                <div class="mb-4">
-                    <label for="password" class="form-label">パスワード</label>
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-key"></i></span>
-                        <input type="password" id="password" name="password" class="form-control" required>
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-warning w-100 fw-bold">
-                    <i class="bi bi-box-arrow-in-right me-1"></i>ログイン
-                </button>
-            </form>
+        <div class="brand-name">
+            <span>B-CashPay</span>
+            <em>Admin</em>
         </div>
     </div>
 
-    <p class="text-center text-secondary mt-4 small">
-        B-CashPay Admin Panel &copy; <?= date('Y') ?>
+    <h1 class="login-title">サインイン</h1>
+    <p class="login-subtitle">管理画面へアクセスします</p>
+
+    <?php if (!empty($error)): ?>
+    <div class="flash flash--danger" style="margin-bottom: 20px;">
+        <i class="bi bi-exclamation-circle"></i>
+        <span><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></span>
+    </div>
+    <?php endif; ?>
+
+    <form method="POST" action="/login" autocomplete="off" style="display:flex; flex-direction:column; gap:16px;">
+        <div class="field" style="margin:0;">
+            <label class="field__label" for="username">ユーザー名</label>
+            <input
+                type="text"
+                id="username"
+                name="username"
+                class="input"
+                placeholder="admin"
+                required
+                autofocus
+                value="<?= htmlspecialchars($_POST['username'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+            >
+        </div>
+
+        <div class="field" style="margin:0;">
+            <label class="field__label" for="password">パスワード</label>
+            <input type="password" id="password" name="password" class="input" required placeholder="••••••••">
+        </div>
+
+        <button type="submit" class="btn btn--primary" style="margin-top: 8px; height: 40px; font-size: 14px;">
+            ログイン
+            <i class="bi bi-arrow-right"></i>
+        </button>
+    </form>
+
+    <p class="login-footer">
+        B-CashPay &middot; <?= date('Y') ?>
     </p>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
 </body>
 </html>

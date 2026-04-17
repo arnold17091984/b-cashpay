@@ -2,14 +2,12 @@
 <!--
   B-CashPay — Payment Link Expired Page
   ========================================
-  Served by PHP API at GET /p/{token}/expired (or when token lookup returns 'expired').
-
   PHP placeholder replacements:
     {{REFERENCE_NUMBER}}  — 7-digit reference number
     {{EXPIRED_AT}}        — expiry datetime string
     {{SERVICE_NAME}}      — merchant name
-    {{RETURN_URL}}        — URL back to merchant
-    {{SUPPORT_EMAIL}}     — support contact email (optional)
+    {{RETURN_URL}}        — URL back to merchant (may be empty)
+    {{SUPPORT_EMAIL}}     — support contact email (may be empty)
 -->
 <html lang="ja">
 <head>
@@ -18,56 +16,87 @@
   <meta name="robots" content="noindex,nofollow">
   <title>お支払いリンクの有効期限切れ — B-CashPay</title>
 
+  <link rel="preconnect" href="https://rsms.me">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="../assets/css/style.css">
 </head>
-<body>
+<body class="bcp-page--expired">
 
-<div class="bcp" style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;">
-  <div class="bcp-state-card" style="margin:0 auto;">
+<main class="bcp-expired-page" aria-label="お支払いリンク期限切れ">
+  <article class="bcp-expired-card">
 
     <!-- Brand -->
-    <div style="font-size:12px;font-weight:800;color:#1a56db;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:20px;text-align:center;">
+    <div class="bcp-expired-card__brand" aria-hidden="true">
+      <span style="
+        display:inline-flex;align-items:center;justify-content:center;
+        width:18px;height:18px;border-radius:5px;
+        background:linear-gradient(135deg,#10b981,#059669);
+        box-shadow:0 2px 6px rgba(59,130,246,0.35);
+      ">
+        <svg viewBox="0 0 12 12" fill="none" width="10" height="10">
+          <path d="M3 2h4a2 2 0 010 4H3V2zm0 4h4.5a2 2 0 010 4H3V6z" fill="#fff" fill-opacity="0.9"/>
+        </svg>
+      </span>
       B-CashPay
     </div>
 
-    <!-- Icon -->
-    <div class="bcp-state-card__icon bcp-state-card__icon--expired" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/>
-        <polyline points="12 6 12 12 16 14"/>
+    <!-- Clock icon -->
+    <div class="bcp-expired-card__icon-wrap" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9.5"/>
+        <polyline points="12 6.5 12 12 15.5 14"/>
       </svg>
     </div>
 
-    <h1 class="bcp-state-card__title">お支払いリンクの有効期限切れ</h1>
+    <h1 class="bcp-expired-card__title">お振込み期限を過ぎました</h1>
 
-    <div class="bcp-state-card__body">
-      <p>このお支払いリンクは有効期限（{{EXPIRED_AT}}）を過ぎたため、無効になりました。</p>
-      <p style="margin-top:12px;">お支払いを続けるには、ショップより新しいお支払いリンクを発行してもらう必要があります。</p>
-      <p style="margin-top:12px;font-size:13px;color:#94a3b8;">参照番号: {{REFERENCE_NUMBER}}</p>
-    </div>
+    <p class="bcp-expired-card__sub">
+      このお支払いリンクは
+      <strong style="color:var(--fg-1);">{{EXPIRED_AT}}</strong>
+      に有効期限が切れました。<br><br>
+      お支払いを続けるには、ご利用のサービスから新しいお支払いリンクを再発行してください。
+    </p>
 
-    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-      <a href="{{RETURN_URL}}" class="bcp-state-card__btn bcp-state-card__btn--primary" rel="noopener">
+    <p class="bcp-expired-card__ref" aria-label="参照番号">
+      参照番号: {{REFERENCE_NUMBER}}
+    </p>
+
+    <!-- Actions -->
+    <div class="bcp-expired-card__actions">
+      <a
+        href="{{RETURN_URL}}"
+        class="bcp-expired-card__btn bcp-expired-card__btn--primary"
+        rel="noopener noreferrer"
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 3L6 8l4 5"/>
+        </svg>
         {{SERVICE_NAME}}に戻る
       </a>
+
       <a
-        href="mailto:{{SUPPORT_EMAIL}}?subject=お支払いリンク再発行依頼 (参照番号: {{REFERENCE_NUMBER}})"
-        class="bcp-state-card__btn bcp-state-card__btn--secondary"
+        href="mailto:{{SUPPORT_EMAIL}}?subject=お支払いリンク再発行依頼（参照番号: {{REFERENCE_NUMBER}}）"
+        class="bcp-expired-card__btn bcp-expired-card__btn--ghost"
       >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/>
+          <path d="M1.5 5l6.5 4.5L14.5 5"/>
+        </svg>
         サポートに連絡
       </a>
     </div>
 
-    <p style="margin-top:24px;font-size:11px;color:#94a3b8;text-align:center;">
+    <!-- Footer -->
+    <p style="margin-top:var(--sp-6);font-size:11px;color:var(--fg-3);text-align:center;">
       Powered by B-CashPay
     </p>
 
-  </div>
-</div>
+  </article>
+</main>
 
 </body>
 </html>

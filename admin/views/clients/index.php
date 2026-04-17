@@ -3,80 +3,99 @@ use BCashPay\Admin\Auth;
 $csrf = Auth::csrfToken();
 ?>
 
-<div class="d-flex align-items-center justify-content-between mb-4">
-    <h2 class="h4 mb-0"><i class="bi bi-key me-2 text-warning"></i>APIクライアント</h2>
-    <a href="/clients/new" class="btn btn-warning btn-sm">
-        <i class="bi bi-plus-lg me-1"></i>追加
-    </a>
+<!-- Page Header -->
+<div class="page-header">
+    <div>
+        <h1 class="page-header__title">API クライアント</h1>
+        <p class="page-header__subtitle">外部システムの接続キーを管理します</p>
+    </div>
+    <div class="page-header__actions">
+        <a href="/clients/new" class="btn btn--primary btn--sm">
+            <i class="bi bi-plus-lg"></i>追加
+        </a>
+    </div>
 </div>
 
-<div class="card">
-    <div class="table-responsive">
-        <table class="table table-hover table-dark table-striped mb-0">
-            <thead class="table-secondary">
-                <tr>
-                    <th>ID</th>
-                    <th>名前</th>
-                    <th>APIキー</th>
-                    <th>コールバックURL</th>
-                    <th class="text-center">状態</th>
-                    <th>作成日</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (empty($clients)): ?>
-                <tr><td colspan="7" class="text-center text-secondary py-4">APIクライアントがありません</td></tr>
-                <?php else: ?>
-                <?php foreach ($clients as $c): ?>
-                <tr>
-                    <td><?= (int) $c['id'] ?></td>
-                    <td class="fw-semibold"><?= htmlspecialchars($c['name'], ENT_QUOTES, 'UTF-8') ?></td>
-                    <td>
-                        <div class="d-flex align-items-center gap-2">
-                            <code class="text-warning api-key-masked" data-key="<?= htmlspecialchars($c['api_key'], ENT_QUOTES, 'UTF-8') ?>">
-                                <?= substr($c['api_key'], 0, 8) ?>••••••••••••••••
-                            </code>
-                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
-                                    onclick="toggleApiKey(this)" title="表示/非表示">
-                                <i class="bi bi-eye"></i>
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
-                                    onclick="copyToClipboard('<?= htmlspecialchars($c['api_key'], ENT_QUOTES, 'UTF-8') ?>', this)"
-                                    title="コピー">
-                                <i class="bi bi-clipboard"></i>
-                            </button>
-                        </div>
-                    </td>
-                    <td class="small text-break"><?= htmlspecialchars($c['callback_url'] ?? '-', ENT_QUOTES, 'UTF-8') ?></td>
-                    <td class="text-center">
-                        <span class="badge bg-<?= $c['is_active'] ? 'success' : 'secondary' ?>">
-                            <?= $c['is_active'] ? '有効' : '無効' ?>
+<div class="table-wrap">
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:50px;">ID</th>
+                <th>名前</th>
+                <th>API キー</th>
+                <th>コールバック URL</th>
+                <th>状態</th>
+                <th>作成</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if (empty($clients)): ?>
+            <tr>
+                <td colspan="7">
+                    <div class="table-empty">
+                        <i class="bi bi-key"></i>
+                        API クライアントがありません
+                    </div>
+                </td>
+            </tr>
+            <?php else: ?>
+            <?php foreach ($clients as $c): ?>
+            <tr>
+                <td class="mono text-muted"><?= (int) $c['id'] ?></td>
+                <td style="font-weight:500;color:var(--fg-0);"><?= htmlspecialchars($c['name'], ENT_QUOTES, 'UTF-8') ?></td>
+                <td>
+                    <div class="hstack" style="gap:6px;">
+                        <span class="mono api-key-masked"
+                              style="font-size:12px;color:var(--fg-2);"
+                              data-key="<?= htmlspecialchars($c['api_key'], ENT_QUOTES, 'UTF-8') ?>">
+                            <?= htmlspecialchars(substr($c['api_key'], 0, 8), ENT_QUOTES, 'UTF-8') ?>••••••••••••••••
                         </span>
-                    </td>
-                    <td class="text-secondary"><?= View::datetime($c['created_at'], 'Y/m/d') ?></td>
-                    <td>
-                        <div class="d-flex gap-1">
-                            <form method="POST" action="/clients/<?= (int) $c['id'] ?>/rotate"
-                                  onsubmit="return confirm('APIキーをローテーションしますか？既存のキーは無効になります。')">
-                                <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
-                                <button type="submit" class="btn btn-sm btn-outline-warning" title="キーローテーション">
-                                    <i class="bi bi-arrow-repeat"></i>
-                                </button>
-                            </form>
-                            <form method="POST" action="/clients/<?= (int) $c['id'] ?>/delete"
-                                  onsubmit="return confirm('このAPIクライアントを無効化しますか？')">
-                                <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
-                                <button type="submit" class="btn btn-sm btn-outline-danger" title="無効化">
-                                    <i class="bi bi-slash-circle"></i>
-                                </button>
-                            </form>
-                        </div>
-                    </td>
-                </tr>
-                <?php endforeach; ?>
-                <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
+                        <button type="button"
+                                class="btn btn--ghost btn--icon-only"
+                                onclick="toggleApiKey(this)"
+                                title="表示 / 非表示"
+                                style="width:24px;height:24px;">
+                            <i class="bi bi-eye" style="font-size:12px;"></i>
+                        </button>
+                        <button type="button"
+                                class="copy-btn"
+                                onclick="copyToClipboard('<?= htmlspecialchars($c['api_key'], ENT_QUOTES, 'UTF-8') ?>', this)"
+                                title="コピー">
+                            <i class="bi bi-clipboard"></i> コピー
+                        </button>
+                    </div>
+                </td>
+                <td class="truncate" style="max-width:220px;font-size:12px;">
+                    <?= htmlspecialchars($c['callback_url'] ?? '—', ENT_QUOTES, 'UTF-8') ?>
+                </td>
+                <td>
+                    <span class="badge badge--<?= $c['is_active'] ? 'active' : 'inactive' ?>">
+                        <?= $c['is_active'] ? '有効' : '無効' ?>
+                    </span>
+                </td>
+                <td class="text-muted nowrap"><?= View::datetime($c['created_at'], 'Y/m/d') ?></td>
+                <td>
+                    <div class="hstack" style="gap:4px;">
+                        <form method="POST" action="/clients/<?= (int) $c['id'] ?>/rotate"
+                              onsubmit="return confirm('API キーをローテーションしますか？既存のキーは無効になります。')">
+                            <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
+                            <button type="submit" class="btn btn--ghost btn--icon-only" title="キーローテーション">
+                                <i class="bi bi-arrow-repeat"></i>
+                            </button>
+                        </form>
+                        <form method="POST" action="/clients/<?= (int) $c['id'] ?>/delete"
+                              onsubmit="return confirm('この API クライアントを無効化しますか？')">
+                            <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
+                            <button type="submit" class="btn btn--danger btn--icon-only" title="無効化">
+                                <i class="bi bi-slash-circle"></i>
+                            </button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+            <?php endif; ?>
+        </tbody>
+    </table>
 </div>
