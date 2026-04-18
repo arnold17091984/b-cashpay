@@ -55,10 +55,16 @@ class PaymentPageController
         if ($row === null) {
             http_response_code(404);
             echo $this->renderTemplate('expired.html', [
-                'MESSAGE' => '支払いリンクが見つかりません。',
-                'BRAND_NAME' => 'B-Pay',
-                'SERVICE_NAME' => 'B-Pay',
-                'RETURN_URL' => '',
+                'MESSAGE'          => '支払いリンクが見つかりません。',
+                'AMOUNT_FORMATTED' => '—',
+                'CURRENCY'         => 'JPY',
+                'REFERENCE_NUMBER' => '—',
+                'EXPIRED_AT'       => '—',
+                'STATUS'           => 'not_found',
+                'BRAND_NAME'       => 'B-Pay',
+                'SERVICE_NAME'     => 'B-Pay',
+                'SUPPORT_EMAIL'    => (string) config('support.email', 'support@b-pay.ink'),
+                'RETURN_URL'       => '/',
             ]);
             exit;
         }
@@ -115,10 +121,16 @@ class PaymentPageController
             http_response_code(404);
             header('Content-Type: text/html; charset=utf-8');
             echo $this->renderTemplate('expired.html', [
-                'MESSAGE'      => '支払いリンクが見つかりません。',
-                'BRAND_NAME'   => 'B-Pay',
-                'SERVICE_NAME' => 'B-Pay',
-                'RETURN_URL'   => '',
+                'MESSAGE'          => '支払いリンクが見つかりません。',
+                'AMOUNT_FORMATTED' => '—',
+                'CURRENCY'         => 'JPY',
+                'REFERENCE_NUMBER' => '—',
+                'EXPIRED_AT'       => '—',
+                'STATUS'           => 'not_found',
+                'BRAND_NAME'       => 'B-Pay',
+                'SERVICE_NAME'     => 'B-Pay',
+                'SUPPORT_EMAIL'    => (string) config('support.email', 'support@b-pay.ink'),
+                'RETURN_URL'       => '/',
             ]);
             exit;
         }
@@ -326,7 +338,23 @@ class PaymentPageController
                 : htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $replacements['{{' . $key . '}}'] = $escaped;
         }
-        return strtr($html, $replacements);
+        $html = strtr($html, $replacements);
+
+        // Defensive cleanup: any `{{UPPER_CASE_KEY}}` that was not supplied by
+        // the caller gets blanked out so stale / missing variables never leak
+        // as literal "{{FOO}}" to the user (as happened in the initial
+        // renderExpired path).  Keeps the page clean and alerts us via the
+        // logs.
+        $html = preg_replace_callback(
+            '/\{\{([A-Z][A-Z0-9_]*)\}\}/',
+            static function (array $m): string {
+                error_log('[PaymentPage] missing placeholder: ' . $m[1]);
+                return '';
+            },
+            $html
+        ) ?? $html;
+
+        return $html;
     }
 
     /**
@@ -405,15 +433,22 @@ class PaymentPageController
      */
     private function renderExpired(array $row, string $message): string
     {
+        $expiredAt = !empty($row['expires_at'])
+            ? date('Y/m/d H:i', strtotime((string) $row['expires_at']))
+            : '';
+        $reference = (string) ($row['reference_number'] ?? '');
+
         return $this->renderTemplate('expired.html', [
             'MESSAGE'           => $message,
             'AMOUNT_FORMATTED'  => number_format((int) ($row['amount'] ?? 0)),
             'CURRENCY'          => (string) ($row['currency'] ?? 'JPY'),
-            'REFERENCE_NUMBER'  => (string) ($row['reference_number'] ?? ''),
+            'REFERENCE_NUMBER'  => $reference !== '' ? $reference : '—',
+            'EXPIRED_AT'        => $expiredAt !== '' ? $expiredAt : '—',
             'STATUS'            => (string) ($row['status'] ?? 'expired'),
             'BRAND_NAME'        => 'B-Pay',
             'SERVICE_NAME'      => 'B-Pay',
-            'RETURN_URL'        => '',
+            'SUPPORT_EMAIL'     => (string) config('support.email', 'support@b-pay.ink'),
+            'RETURN_URL'        => '/',
         ]);
     }
 
