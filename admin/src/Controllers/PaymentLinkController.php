@@ -450,6 +450,96 @@ class PaymentLinkController
         exit;
     }
 
+    /**
+     * POST /payments/{id}/delete — hard-delete a payment link row.
+     *
+     * Intentionally conservative:
+     *   - Confirmed (customer paid) rows are never deleted — they are the
+     *     financial record of an accepted deposit.
+     *   - Rows that have any matched deposits_payment_link_id reference
+     *     are never deleted — we would orphan the deposit.
+     *   - Template rows cascade to their children, but the cascade itself
+     *     re-applies the same safety rules: a confirmed child blocks the
+     *     delete.
+     *
+     * All deletes run in a single transaction so a template with a
+     * disqualifying child does not half-delete.
+     */
+    public function delete(string $id): void
+    {
+        $this->auth->requireAuth();
+        Auth::validateCsrf();
+
+        $link = $this->db->fetchOne(
+            "SELECT id, status, link_type FROM payment_links WHERE id = ? LIMIT 1",
+            [$id]
+        );
+        if ($link === null) {
+            http_response_code(404);
+            exit;
+        }
+
+        // A confirmed link carries actual money-received state; refuse.
+        if ($link['status'] === 'confirmed') {
+            View::setFlash('error', '入金確認済みのリンクは削除できません（キャンセルもできません）。');
+            header("Location: /payments/{$id}");
+            exit;
+        }
+
+        // Check for any attached deposit — even unmatched remnants keep
+        // us on the safe side.
+        $hasDeposit = $this->db->fetchOne(
+            "SELECT id FROM deposits WHERE payment_link_id = ? LIMIT 1",
+            [$id]
+        );
+        if ($hasDeposit !== null) {
+            View::setFlash('error', '入金レコードが紐付いているため削除できません。先に入金を解除してください。');
+            header("Location: /payments/{$id}");
+            exit;
+        }
+
+        try {
+            $this->db->transaction(function () use ($id, $link) {
+                if ($link['link_type'] === 'template') {
+                    // Any confirmed child blocks the whole cascade.
+                    $confirmedChild = $this->db->fetchOne(
+                        "SELECT id FROM payment_links
+                         WHERE parent_link_id = ? AND status = 'confirmed' LIMIT 1",
+                        [$id]
+                    );
+                    if ($confirmedChild !== null) {
+                        throw new \RuntimeException('このテンプレートから発行された子リンクに入金確認済みのものがあるため、削除できません。');
+                    }
+
+                    // Also guard against matched-deposit children.
+                    $childWithDeposit = $this->db->fetchOne(
+                        "SELECT pl.id FROM payment_links pl
+                         JOIN deposits d ON d.payment_link_id = pl.id
+                         WHERE pl.parent_link_id = ? LIMIT 1",
+                        [$id]
+                    );
+                    if ($childWithDeposit !== null) {
+                        throw new \RuntimeException('このテンプレートから発行された子リンクに入金レコードが紐付いているため、削除できません。');
+                    }
+
+                    $this->db->query(
+                        "DELETE FROM payment_links WHERE parent_link_id = ?",
+                        [$id]
+                    );
+                }
+                $this->db->query("DELETE FROM payment_links WHERE id = ?", [$id]);
+            });
+        } catch (\Throwable $e) {
+            View::setFlash('error', $e->getMessage());
+            header("Location: /payments/{$id}");
+            exit;
+        }
+
+        View::setFlash('success', '決済リンクを削除しました。');
+        header('Location: /payments');
+        exit;
+    }
+
     public function manualMatch(string $id): void
     {
         $this->auth->requireAuth();

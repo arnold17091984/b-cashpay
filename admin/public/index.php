@@ -79,6 +79,7 @@ $router->get('/payments/new',                  [$payCtrl, 'create']);
 $router->post('/payments',                     [$payCtrl, 'store']);
 $router->get('/payments/{id}',                 [$payCtrl, 'show']);
 $router->post('/payments/{id}/cancel',         [$payCtrl, 'cancel']);
+$router->post('/payments/{id}/delete',         [$payCtrl, 'delete']);
 $router->post('/payments/{id}/match',          [$payCtrl, 'manualMatch']);
 
 // Bank accounts

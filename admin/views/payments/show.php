@@ -379,6 +379,27 @@ function bpShareNative() {
                 </form>
                 <?php endif; ?>
 
+                <?php
+                // Delete is allowed whenever the row is NOT confirmed and has
+                // no matched deposit.  Controller enforces the same rules;
+                // here we just decide whether to render the button at all.
+                $canDelete = $link['status'] !== 'confirmed' && empty($deposit);
+                ?>
+                <?php if ($canDelete): ?>
+                <?php
+                $confirmMsg = $link['link_type'] === 'template'
+                    ? 'このテンプレートと、そこから発行された全ての子リンクを完全に削除します。よろしいですか？（入金確認済みの子リンクがある場合はサーバー側で拒否されます）'
+                    : 'この決済リンクを完全に削除します。よろしいですか？この操作は取り消せません。';
+                ?>
+                <form method="POST" action="/payments/<?= htmlspecialchars($link['id'], ENT_QUOTES, 'UTF-8') ?>/delete"
+                      onsubmit="return confirm(<?= htmlspecialchars(json_encode($confirmMsg), ENT_QUOTES, 'UTF-8') ?>)">
+                    <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
+                    <button type="submit" class="btn btn--ghost btn--sm" style="width:100%;color:var(--danger);">
+                        <i class="bi bi-trash"></i>削除
+                    </button>
+                </form>
+                <?php endif; ?>
+
                 <?php if ($canMatch && !empty($unmatchedDeposits)): ?>
                 <button type="button" class="btn btn--primary btn--sm" style="width:100%;"
                         onclick="document.getElementById('matchModal').style.display='flex'">
