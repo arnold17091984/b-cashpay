@@ -120,6 +120,36 @@ class TelegramNotifier
     }
 
     /**
+     * Notify that a customer filled in a blank payment link (awaiting_input)
+     * or spawned a child from a template.  This is distinct from
+     * notifyPaymentCreated, which fires when an operator issues a link from
+     * the admin dashboard / Telegram bot — the wording here tells the ops
+     * team "a payment page just got populated by the customer, expect a
+     * deposit shortly" so they can keep an eye on the matching flow.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function notifyCustomerPaymentRequest(array $data): bool
+    {
+        $amount    = number_format((int) ($data['amount'] ?? 0));
+        $kana      = $this->escapeHtml((string) ($data['customer_kana'] ?? '(未入力)'));
+        $ref       = $this->escapeHtml((string) ($data['reference_number'] ?? '-'));
+        $id        = $this->escapeHtml((string) ($data['id'] ?? '-'));
+        $source    = $this->escapeHtml((string) ($data['source'] ?? 'customer_input'));
+
+        $msg = "\xF0\x9F\x93\xA5 <b>振込リクエスト</b>\n\n"
+            . "ID: <code>{$id}</code>\n"
+            . "金額: {$amount} JPY\n"
+            . "振込名義カナ: {$kana}\n"
+            . "参照番号: <code>{$ref}</code>\n"
+            . "種別: {$source}\n"
+            . "受付日時: " . now_jst() . "\n\n"
+            . "<i>次回スクレイパーポーリング（最大60秒以内）でマッチ確認を開始します。</i>";
+
+        return $this->send($msg, $data['id'] ?? null);
+    }
+
+    /**
      * Notify that a deposit was detected and matched to a payment link.
      *
      * @param array<string, mixed> $data

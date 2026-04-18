@@ -336,9 +336,27 @@ class PaymentLinkService
                 'updated_at'      => now_jst(),
             ]);
 
-            // Queue a scraper task for this bank account so the freshly-pending
-            // link is polled on the next scrape cycle.
+            // Queue a scraper task AND force the account to be considered
+            // immediately due so the next 60-second runner poll kicks off
+            // a real scrape instead of waiting for the regular 15-min
+            // interval.
             $this->ensureScraperTask((int) $template['bank_account_id']);
+            $this->forceImmediateScrape((int) $template['bank_account_id']);
+
+            // Telegram: tell the ops team a customer just filled in this
+            // template — helps them keep an eye on the matching flow.
+            // Fire-and-forget; never break the customer-facing request.
+            try {
+                $this->telegram->notifyCustomerPaymentRequest([
+                    'id'               => $childId,
+                    'amount'           => $amount,
+                    'customer_kana'    => $kana,
+                    'reference_number' => $referenceNumber,
+                    'source'           => 'template→child',
+                ]);
+            } catch (\Throwable) {
+                // Non-fatal
+            }
 
             return [
                 'id'               => $childId,
@@ -408,7 +426,45 @@ class PaymentLinkService
             );
 
             $this->ensureScraperTask((int) $row['bank_account_id']);
+            $this->forceImmediateScrape((int) $row['bank_account_id']);
+
+            try {
+                $this->telegram->notifyCustomerPaymentRequest([
+                    'id'               => (string) $row['id'],
+                    'amount'           => $amount,
+                    'customer_kana'    => $kana,
+                    'reference_number' => $referenceNumber,
+                    'source'           => 'awaiting_input→pending',
+                ]);
+            } catch (\Throwable) {
+                // Non-fatal
+            }
         });
+    }
+
+    /**
+     * Mark the given bank account as "due right now" so the next runner
+     * poll (every 60 seconds) kicks off an actual scrape cycle, rather
+     * than waiting for the usual scrape_interval_minutes window.
+     *
+     * The runner's is_due_for_scrape() considers scrape_last_at IS NULL
+     * as immediately-due, which is why we null it here.  If a scrape is
+     * already in flight from a previous customer's submit, this is a
+     * no-op — the runner processes one bank at a time per poll and will
+     * see the NULL on the subsequent cycle anyway.
+     */
+    private function forceImmediateScrape(int $bankAccountId): void
+    {
+        try {
+            $this->db->update(
+                'bank_accounts',
+                ['scrape_last_at' => null],
+                ['id' => $bankAccountId]
+            );
+        } catch (\Throwable) {
+            // Non-fatal — worst case the scrape happens on its regular
+            // interval instead of within 60 seconds.
+        }
     }
 
     private function ensureScraperTask(int $bankAccountId): void
