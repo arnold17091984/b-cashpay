@@ -65,30 +65,11 @@
       参照番号: {{REFERENCE_NUMBER}}
     </p>
 
-    <!-- Actions -->
-    <div class="bcp-expired-card__actions">
-      <a
-        href="{{RETURN_URL}}"
-        class="bcp-expired-card__btn bcp-expired-card__btn--primary"
-        rel="noopener noreferrer"
-      >
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M10 3L6 8l4 5"/>
-        </svg>
-        {{SERVICE_NAME}}に戻る
-      </a>
-
-      <a
-        href="mailto:{{SUPPORT_EMAIL}}?subject=お支払いリンク再発行依頼（参照番号: {{REFERENCE_NUMBER}}）"
-        class="bcp-expired-card__btn bcp-expired-card__btn--ghost"
-      >
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/>
-          <path d="M1.5 5l6.5 4.5L14.5 5"/>
-        </svg>
-        サポートに連絡
-      </a>
-    </div>
+    <!-- No action buttons — a customer hitting this page has no useful
+         navigation target (there is no merchant-side "back" for a plain
+         B-Pay link), and the support-email flow is out of scope.  The
+         copy above already tells the customer to request a new link
+         from whoever sent them here. -->
 
     <!-- Footer -->
     <p style="margin-top:var(--sp-6);font-size:11px;color:var(--fg-3);text-align:center;">

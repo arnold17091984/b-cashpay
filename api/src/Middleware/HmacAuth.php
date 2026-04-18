@@ -53,10 +53,17 @@ class HmacAuth
         // Store in $_SERVER for later use by the controller.
         $_SERVER['BCASHPAY_RAW_BODY'] = $rawBody;
 
+        // Accept either "sha256=<hex>" (GitHub/Stripe convention, used by
+        // the Python scraper) or a bare "<hex>" — strip the prefix if
+        // present before the constant-time compare.
+        $signatureHex = str_starts_with($signature, 'sha256=')
+            ? substr($signature, 7)
+            : $signature;
+
         $expected = hash_hmac('sha256', $rawBody, $secret);
 
         // Constant-time comparison to prevent timing attacks
-        if (!hash_equals($expected, $signature)) {
+        if (!hash_equals($expected, $signatureHex)) {
             json_error('Invalid scraper signature', 401);
         }
     }

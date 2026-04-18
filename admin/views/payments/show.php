@@ -5,9 +5,15 @@ $csrf = Auth::csrfToken();
 $canCancel = $link['status'] === 'pending';
 $canMatch  = $link['status'] === 'pending' && $deposit === null;
 
-// Public payment page URL (what the customer opens)
-// API runs on port 8000 by convention; admin on 8001. Adjust API base URL via env if needed.
-$apiBase = rtrim((string) (getenv('B_PAY_API_BASE_URL') ?: 'http://localhost:8000'), '/');
+// Public payment page URL (what the customer opens).  Prefer the shared
+// config — PAY_PAGE_URL in the API .env already points at the production
+// host; the legacy B_PAY_API_BASE_URL env is kept as a manual override for
+// local dev, and the old localhost:8000 default is gone (it was leaking
+// into production-facing URLs).
+$apiBase = rtrim(
+    (string) (getenv('B_PAY_API_BASE_URL') ?: config('pay_page.url', 'https://b-pay.ink')),
+    '/'
+);
 $paymentUrl = $apiBase . '/p/' . $link['token'];
 $justCreated = isset($_GET['created']) && $_GET['created'] === '1';
 ?>
