@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS `payment_links` (
 CREATE TABLE IF NOT EXISTS `deposits` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `bank_account_id` BIGINT UNSIGNED NOT NULL,
-    `payment_link_id` VARCHAR(26) DEFAULT NULL COMMENT 'NULL until matched',
+    `payment_link_id` VARCHAR(32) DEFAULT NULL COMMENT 'NULL until matched; 32 chars to match payment_links.id (bp_ prefix + 26-char ULID)',
     `depositor_name` VARCHAR(255) NOT NULL COMMENT 'Name as it appears in bank statement',
     `amount` DECIMAL(12,0) NOT NULL,
     `transaction_date` TIMESTAMP NOT NULL,
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS `scraper_tasks` (
 -- Every webhook callback attempt is logged for debugging and retry.
 CREATE TABLE IF NOT EXISTS `webhook_logs` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `payment_link_id` VARCHAR(26) NOT NULL,
+    `payment_link_id` VARCHAR(32) NOT NULL,
     `url` VARCHAR(512) NOT NULL,
     `request_body` JSON NOT NULL,
     `response_code` INT DEFAULT NULL,
@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS `webhook_logs` (
 -- Audit trail for all Telegram notifications sent.
 CREATE TABLE IF NOT EXISTS `telegram_logs` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `payment_link_id` VARCHAR(26) DEFAULT NULL,
+    `payment_link_id` VARCHAR(32) DEFAULT NULL,
     `chat_id` VARCHAR(64) NOT NULL,
     `message` TEXT NOT NULL,
     `sent_at` TIMESTAMP NULL DEFAULT NULL,
