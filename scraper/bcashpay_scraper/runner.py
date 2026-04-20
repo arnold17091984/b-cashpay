@@ -411,7 +411,7 @@ def is_due_for_scrape(account_row: dict, interval_minutes: Optional[int] = None)
 
 # ── Core scrape cycle ─────────────────────────────────────────────────────────
 
-async def run_bank_scrape(account_row: dict, headless: bool = True) -> bool:
+async def run_bank_scrape(account_row: dict, headless: bool = False) -> bool:
     """Execute one full scrape cycle for a single bank_accounts row.
 
     Steps:
@@ -562,7 +562,10 @@ async def run_bank_scrape(account_row: dict, headless: bool = True) -> bool:
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
-async def main_loop(poll_interval_seconds: int = POLL_INTERVAL_SECONDS) -> None:
+async def main_loop(
+    poll_interval_seconds: int = POLL_INTERVAL_SECONDS,
+    headless: bool = False,
+) -> None:
     """Continuous loop: check due accounts every *poll_interval_seconds* seconds.
 
     An account is scraped when enough time has elapsed since the last scrape.
@@ -573,10 +576,14 @@ async def main_loop(poll_interval_seconds: int = POLL_INTERVAL_SECONDS) -> None:
         (180 min default) so we still catch unsolicited deposits and keep
         the dashboard balance fresh, while staying conservative enough to
         avoid tripping bank bot-detection heuristics.
+
+    ``headless`` is forwarded to every ``run_bank_scrape`` call.  Bank login
+    pages typically block headless Chromium, so the default is False — the
+    systemd wrapper runs under xvfb so a "visible" browser works fine.
     """
     log.info(
         f'B-CashPay scraper runner started (poll every {poll_interval_seconds}s, '
-        f'idle baseline {IDLE_SCRAPE_INTERVAL_MINUTES}min)'
+        f'idle baseline {IDLE_SCRAPE_INTERVAL_MINUTES}min, headless={headless})'
     )
 
     while True:
@@ -602,7 +609,7 @@ async def main_loop(poll_interval_seconds: int = POLL_INTERVAL_SECONDS) -> None:
                         f'[{bank_name}] due — idle baseline '
                         f'({IDLE_SCRAPE_INTERVAL_MINUTES}min, balance refresh)'
                     )
-                await run_bank_scrape(account)
+                await run_bank_scrape(account, headless=headless)
 
         except Exception as exc:
             log.exception(f'Main loop error: {exc}')
@@ -665,7 +672,7 @@ def main() -> int:
         return 0
 
     # Continuous mode.
-    asyncio.run(main_loop())
+    asyncio.run(main_loop(headless=headless))
     return 0
 
 
