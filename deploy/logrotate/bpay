@@ -1,0 +1,14 @@
+/var/log/bpay/*.log
+/var/log/bpay/scraper/*.log
+{
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    dateext
+    dateformat -%Y%m%d
+    su root root
+}

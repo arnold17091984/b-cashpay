@@ -161,6 +161,10 @@ function dispatch(string $method, string $path): void
             $ctrl->receiveDeposit();
             return;
         }
+        if ($method === 'POST' && $path === '/api/internal/scraper/status') {
+            $ctrl->receiveStatus();
+            return;
+        }
         if ($method === 'GET' && $path === '/api/internal/scraper/tasks') {
             $ctrl->getTasks();
             return;

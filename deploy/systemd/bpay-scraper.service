@@ -1,0 +1,32 @@
+[Unit]
+Description=B-Pay Bank Scraper Runner
+After=network-online.target mysql.service
+Wants=network-online.target
+# Page immediately when the runner exits with a non-zero status or fails to
+# start — dead-man switch so a crash-loop can never go unnoticed again.
+OnFailure=bpay-alert@%n.service
+
+[Service]
+Type=simple
+User=bpay
+Group=bpay
+WorkingDirectory=/opt/bpay/scraper
+EnvironmentFile=/opt/bpay/scraper/.env
+Environment="PATH=/opt/bpay/scraper/.venv/bin:/usr/bin:/bin"
+ExecStart=/opt/bpay/scraper/bin/run-runner.sh
+Restart=always
+RestartSec=30
+StandardOutput=append:/var/log/bpay/scraper/runner.log
+StandardError=append:/var/log/bpay/scraper/runner.log
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+# /var/log/bpay           — log file writes
+# /var/lib/bpay           — session storage, screenshots, CSV downloads
+# /tmp                    — xvfb auth file + transient browser profile
+ReadWritePaths=/var/log/bpay /var/lib/bpay /tmp
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

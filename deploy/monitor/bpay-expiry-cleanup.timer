@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly cleanup of expired pending payment_links
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Unit=bpay-expiry-cleanup.service
+
+[Install]
+WantedBy=timers.target

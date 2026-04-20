@@ -1,0 +1,11 @@
+[Unit]
+Description=Run B-Pay health monitor every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Unit=bpay-monitor.service
+
+[Install]
+WantedBy=timers.target

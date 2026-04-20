@@ -17,7 +17,8 @@ use BCashPay\Services\WebhookSender;
  * They are NOT exposed to public API clients.
  *
  * POST /api/internal/scraper/deposits — Receive matched deposits
- * GET  /api/internal/scraper/tasks   — Get pending scraper tasks
+ * GET  /api/internal/scraper/tasks    — Get pending scraper tasks
+ * POST /api/internal/scraper/status   — Receive scraper run status / health report
  */
 class ScraperWebhookController
 {
@@ -237,6 +238,84 @@ class ScraperWebhookController
             'success' => true,
             'data'    => $result,
             'count'   => count($result),
+        ]);
+    }
+
+    /**
+     * POST /api/internal/scraper/status
+     * Receive a per-run status / health report from the Python scraper.
+     *
+     * The scraper posts a lightweight summary at the end of every cycle so
+     * the API-side health view has an end-to-end picture (login succeeded,
+     * N transactions extracted, M matched, duration).  This endpoint does
+     * not mutate domain state — it only records the reported run metadata
+     * into scraper_tasks for observability, which the monitor and admin
+     * dashboard can read.
+     *
+     * Expected payload:
+     * {
+     *   "bank_account_id": 1,
+     *   "status": "success" | "failure",
+     *   "message": "Extracted 24, matched 0",
+     *   "stats": {
+     *     "transactions_found": 24,
+     *     "transactions_matched": 0,
+     *     "duration_seconds": 38.14
+     *   }
+     * }
+     */
+    public function receiveStatus(): never
+    {
+        $rawBody = $_SERVER['BCASHPAY_RAW_BODY'] ?? file_get_contents('php://input');
+        $data    = json_decode((string) $rawBody, true);
+
+        if (!is_array($data)) {
+            json_error('Invalid JSON payload', 400);
+        }
+
+        $bankAccountId = isset($data['bank_account_id']) ? (int) $data['bank_account_id'] : null;
+        $status        = (string) ($data['status'] ?? '');
+        $message       = isset($data['message']) ? (string) $data['message'] : null;
+        $stats         = isset($data['stats']) && is_array($data['stats']) ? $data['stats'] : [];
+
+        if ($bankAccountId === null || $bankAccountId <= 0) {
+            json_error('bank_account_id is required', 400);
+        }
+        if ($status === '') {
+            json_error('status is required', 400);
+        }
+
+        // Accept 'success' / 'failure' from the scraper and normalise to the
+        // scraper_tasks enum used elsewhere in the system.
+        $normalisedStatus = match ($status) {
+            'success', 'completed' => 'completed',
+            'failure', 'failed'    => 'failed',
+            default                 => 'completed',
+        };
+
+        $transactionsFound   = (int) ($stats['transactions_found'] ?? 0);
+        $transactionsMatched = (int) ($stats['transactions_matched'] ?? 0);
+        $durationSeconds     = isset($stats['duration_seconds']) ? (float) $stats['duration_seconds'] : null;
+
+        // Note: run_bank_scrape() in runner.py also inserts a scraper_tasks
+        // row locally, so this endpoint is additive/redundant by design.
+        // We log it anyway so an API-only observer has the full picture.
+        $this->db->insert('scraper_tasks', [
+            'bank_account_id'      => $bankAccountId,
+            'status'               => $normalisedStatus,
+            'last_run_at'          => now_jst(),
+            'run_count'            => 1,
+            'transactions_found'   => $transactionsFound,
+            'transactions_matched' => $transactionsMatched,
+            'duration_seconds'     => $durationSeconds,
+            'error_message'        => $normalisedStatus === 'failed' ? $message : null,
+            'created_at'           => now_jst(),
+            'updated_at'           => now_jst(),
+        ]);
+
+        json_response([
+            'success' => true,
+            'status'  => $normalisedStatus,
         ]);
     }
 
