@@ -58,9 +58,10 @@ class DashboardController
             "SELECT DATE(confirmed_at) as date, SUM(amount) as total
              FROM payment_links
              WHERE status = 'confirmed'
-               AND confirmed_at >= date('now', '-6 days')
+               AND confirmed_at >= ?
              GROUP BY DATE(confirmed_at)
-             ORDER BY date ASC"
+             ORDER BY date ASC",
+            [date('Y-m-d 00:00:00', strtotime('-6 days'))]
         );
 
         // Build complete 7-day array
@@ -95,6 +96,22 @@ class DashboardController
              ORDER BY ba.id ASC"
         );
 
+        // Account balances — active banks with a captured current_balance.
+        // Also report the total across all banks for the summary tile.
+        $balances = $this->db->fetchAll(
+            "SELECT id, bank_name, branch_name, account_number,
+                    current_balance, balance_updated_at
+             FROM bank_accounts
+             WHERE is_active = 1
+             ORDER BY bank_name ASC, id ASC"
+        );
+        $totalBalance = 0;
+        foreach ($balances as $b) {
+            if ($b['current_balance'] !== null) {
+                $totalBalance += (int) $b['current_balance'];
+            }
+        }
+
         View::render('dashboard/index', [
             'title'         => 'ダッシュボード',
             'linkCounts'    => $linkCounts,
@@ -104,6 +121,8 @@ class DashboardController
             'revenueDays'   => $revenueDays,
             'recentLinks'   => $recentLinks,
             'scraperStatus' => $scraperStatus,
+            'balances'      => $balances,
+            'totalBalance'  => $totalBalance,
             'currentUser'   => $this->auth->user(),
         ]);
     }

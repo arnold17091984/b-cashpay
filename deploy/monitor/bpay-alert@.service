@@ -1,0 +1,11 @@
+[Unit]
+Description=B-Pay immediate alert for failed unit %i
+
+[Service]
+Type=oneshot
+# %i is the escaped unit name passed via OnFailure=bpay-alert@%n.service
+ExecStart=/usr/bin/python3 /opt/bpay/monitor/check.py --alert-failure %I
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/bpay /var/lib/bpay-monitor /tmp
+PrivateTmp=true

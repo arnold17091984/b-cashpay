@@ -1,0 +1,27 @@
+[Unit]
+Description=B-Pay Scraper Control API
+After=network-online.target mysql.service
+Wants=network-online.target
+OnFailure=bpay-alert@%n.service
+
+[Service]
+Type=simple
+User=bpay
+Group=bpay
+WorkingDirectory=/opt/bpay/scraper
+EnvironmentFile=/opt/bpay/scraper/.env
+Environment="PATH=/opt/bpay/scraper/.venv/bin:/usr/bin:/bin"
+ExecStart=/opt/bpay/scraper/.venv/bin/python -m bcashpay_scraper.server
+Restart=always
+RestartSec=15
+StandardOutput=append:/var/log/bpay/scraper/server.log
+StandardError=append:/var/log/bpay/scraper/server.log
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/bpay /var/lib/bpay /tmp
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

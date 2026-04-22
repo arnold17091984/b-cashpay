@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace BCashPay\Controllers;
 
 use BCashPay\Database;
+use BCashPay\Services\PaymentLinkService;
+use BCashPay\Services\ReferenceGenerator;
+use BCashPay\Services\TelegramNotifier;
+use BCashPay\Services\WebhookSender;
 
 /**
  * PaymentPageController — Customer-facing payment pages (HTML).
@@ -19,12 +23,19 @@ use BCashPay\Database;
 class PaymentPageController
 {
     private readonly Database $db;
+    private readonly PaymentLinkService $service;
     private readonly string $templateDir;
     private readonly string $assetsBaseUrl;
 
     public function __construct()
     {
         $this->db = Database::getInstance();
+        $this->service = new PaymentLinkService(
+            $this->db,
+            new ReferenceGenerator($this->db),
+            new TelegramNotifier($this->db),
+            new WebhookSender($this->db)
+        );
         // Templates and assets live outside the api/ dir
         $this->templateDir = dirname(__DIR__, 3) . '/pay/templates';
         $this->assetsBaseUrl = '/assets';  // nginx proxies /assets/* → /pay/assets/*
@@ -33,7 +44,216 @@ class PaymentPageController
     /**
      * GET /p/{token}
      */
-    public function show(string $token): never
+    public function show(string $token, ?string $errorMessage = null, array $prev = []): never
+    {
+        $row = $this->loadByToken($token);
+
+        header('Content-Type: text/html; charset=utf-8');
+        header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
+
+        if ($row === null) {
+            http_response_code(404);
+            echo $this->renderTemplate('expired.html', [
+                'MESSAGE'          => '支払いリンクが見つかりません。',
+                'AMOUNT_FORMATTED' => '—',
+                'CURRENCY'         => 'JPY',
+                'REFERENCE_NUMBER' => '—',
+                'EXPIRED_AT'       => '—',
+                'STATUS'           => 'not_found',
+                'BRAND_NAME'       => 'B-Pay',
+                'SERVICE_NAME'     => 'B-Pay',
+                'SUPPORT_EMAIL'    => (string) config('support.email', 'support@b-pay.ink'),
+                'RETURN_URL'       => '/',
+            ]);
+            exit;
+        }
+
+        // Auto-expire pending links past expires_at.  Templates don't expire
+        // on schedule — they stay live until an operator cancels them.
+        if (
+            $row['status'] === 'pending'
+            && $row['link_type'] !== 'template'
+            && strtotime($row['expires_at']) < time()
+        ) {
+            $this->db->update(
+                'payment_links',
+                ['status' => 'expired', 'updated_at' => now_jst()],
+                ['id' => $row['id']]
+            );
+            $row['status'] = 'expired';
+        }
+
+        http_response_code(200);
+
+        // ── Route by link_type first, then by status ──────────────────────
+        if ($row['link_type'] === 'template' || $row['link_type'] === 'awaiting_input') {
+            // Customer hasn't submitted their amount yet → show input form.
+            echo $this->renderAwaitingInput($row, $errorMessage, $prev);
+            exit;
+        }
+
+        echo match ($row['status']) {
+            'confirmed' => $this->renderConfirmed($row),
+            'expired'   => $this->renderExpired($row, 'この支払いリンクは有効期限が切れています。'),
+            'cancelled' => $this->renderExpired($row, 'この支払いリンクはキャンセルされました。'),
+            default     => $this->renderPayment($row),
+        };
+        exit;
+    }
+
+    /**
+     * POST /p/{token}/submit — customer-entered amount + optional kana.
+     *
+     * For link_type='awaiting_input': upgrade the existing row in place
+     * (status pending, amount set, locked_at set) and re-render the payment
+     * page with the now-known depositor-name line.
+     *
+     * For link_type='template': spawn a brand-new child row with its own
+     * token + reference_number and redirect the customer to the child URL
+     * so subsequent visitors to the template link still see a blank form.
+     */
+    public function submit(string $token): never
+    {
+        $row = $this->loadByToken($token);
+
+        if ($row === null) {
+            http_response_code(404);
+            header('Content-Type: text/html; charset=utf-8');
+            echo $this->renderTemplate('expired.html', [
+                'MESSAGE'          => '支払いリンクが見つかりません。',
+                'AMOUNT_FORMATTED' => '—',
+                'CURRENCY'         => 'JPY',
+                'REFERENCE_NUMBER' => '—',
+                'EXPIRED_AT'       => '—',
+                'STATUS'           => 'not_found',
+                'BRAND_NAME'       => 'B-Pay',
+                'SERVICE_NAME'     => 'B-Pay',
+                'SUPPORT_EMAIL'    => (string) config('support.email', 'support@b-pay.ink'),
+                'RETURN_URL'       => '/',
+            ]);
+            exit;
+        }
+
+        // Only awaiting_input and template links accept submits.  Anything
+        // else — a fixed `single` link that has already been filled, a
+        // confirmed/expired/cancelled link, a freshly-finalised awaiting
+        // link — gets redirected to the display page, which knows how to
+        // render the correct state.  We key on status (the authoritative
+        // state field) rather than link_type so the guard stays correct
+        // even if finaliseAwaitingInput flips link_type to 'single'.
+        if (!in_array($row['status'], ['awaiting_input', 'pending'], true)
+            || !in_array($row['link_type'], ['awaiting_input', 'template'], true)
+        ) {
+            header('Location: /p/' . $token, true, 303);
+            exit;
+        }
+
+        // Rate limit every inbound submit.  Two windows:
+        //   - per IP + per token: 5 submits / minute — stops repeated double
+        //     taps on one link from flooding the matcher
+        //   - per IP across all templates: 30 submits / 5 minutes — caps
+        //     the blast radius of a single attacker trying to spam many
+        //     template URLs
+        $clientIp = $this->clientIp();
+        \applyRateLimit('submit_' . md5($clientIp . '|' . $token), 5, 60, 429);
+        if ($row['link_type'] === 'template') {
+            \applyRateLimit('submit_tpl_' . md5($clientIp), 30, 300, 429);
+        }
+
+        $rawAmount = trim((string) ($_POST['amount'] ?? ''));
+        $rawKana   = trim((string) ($_POST['customer_kana'] ?? ''));
+        $prev      = ['amount' => $rawAmount, 'kana' => $rawKana];
+
+        // ── Amount validation ─────────────────────────────────────────────
+        // Normalise full-width digits / commas before casting to int, so
+        // copy-pasted bank-style ¥50,000 or ５０,０００ parse correctly.
+        $normalised = mb_convert_kana($rawAmount, 'asn');
+        $normalised = str_replace([',', ' ', '　', '¥', '￥'], '', $normalised);
+        if (!preg_match('/^\d+$/', $normalised)) {
+            $this->show($token, '金額は半角数字で入力してください。', $prev);
+        }
+        $amount = (int) $normalised;
+
+        // Absolute server-side ceiling, independent of the per-link max.  The
+        // schema stores `amount` as DECIMAL(12,0) so this is well within the
+        // column width; anything beyond ¥10,000,000 is either operator data
+        // corruption or a malicious direct POST.
+        if ($amount > 10_000_000) {
+            $this->show($token, '金額の上限を超えています。', $prev);
+        }
+
+        $min = $row['min_amount'] !== null ? (int) $row['min_amount'] : 1000;
+        $max = $row['max_amount'] !== null ? (int) $row['max_amount'] : 500_000;
+        if ($amount < $min || $amount > $max) {
+            $this->show(
+                $token,
+                sprintf('金額は ¥%s 〜 ¥%s の範囲でご入力ください。', number_format($min), number_format($max)),
+                $prev
+            );
+        }
+
+        // ── Kana validation (optional) ────────────────────────────────────
+        // Policy: accept full-width / half-width katakana AND hiragana.
+        // Hiragana is silently converted to katakana so the stored value is
+        // always in the form the bank shows on deposit lines.  If you want
+        // to reject hiragana instead, add a `preg_match('/\p{Hiragana}/u',
+        // $rawKana)` check BEFORE the mb_convert_kana call.
+        $kana = null;
+        if ($rawKana !== '') {
+            // Pre-normalisation charset guard — reject anything that is not
+            // katakana/hiragana/prolonged-sound/spaces so junk input fails
+            // before we run it through the converter.
+            if (!preg_match('/^[\p{Katakana}\p{Hiragana}ー\s　]{1,40}$/u', $rawKana)) {
+                $this->show(
+                    $token,
+                    '振込依頼人名カナはカタカナで入力してください（空欄でも構いません）。',
+                    $prev
+                );
+            }
+            $kana = mb_convert_kana($rawKana, 'KVC');  // → full-width katakana
+        }
+
+        // ── Branch on link_type ───────────────────────────────────────────
+        // Catch the RuntimeException that PaymentLinkService throws when
+        // the template's bank account has been deactivated or the
+        // awaiting_input row has already been claimed by a concurrent
+        // submitter, and re-render the form with a human-readable message
+        // rather than a 500.
+        try {
+            if ($row['link_type'] === 'template') {
+                $child = $this->service->createChildFromTemplate($row, $amount, $kana);
+                header('Location: /p/' . $child['token'], true, 303);
+                exit;
+            }
+
+            // awaiting_input: upgrade the existing row in place, transactionally,
+            // so two concurrent submits can't both succeed.
+            $this->service->finaliseAwaitingInput($row, $amount, $kana);
+            header('Location: /p/' . $token, true, 303);
+            exit;
+        } catch (\RuntimeException $e) {
+            $this->show($token, $e->getMessage(), $prev);
+        }
+    }
+
+    /**
+     * Best-effort client IP extraction that respects the first hop of
+     * X-Forwarded-For when nginx is in front.  Same logic as
+     * rateLimitPublic() in api/public/index.php.
+     */
+    private function clientIp(): string
+    {
+        $raw = $_SERVER['HTTP_X_FORWARDED_FOR']
+            ?? $_SERVER['REMOTE_ADDR']
+            ?? 'unknown';
+        return trim(explode(',', (string) $raw)[0]);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function loadByToken(string $token): ?array
     {
         $row = $this->db->fetchOne(
             'SELECT pl.*, ba.bank_name, ba.bank_code, ba.branch_name, ba.branch_code,
@@ -44,41 +264,7 @@ class PaymentPageController
              LIMIT 1',
             [$token]
         );
-
-        header('Content-Type: text/html; charset=utf-8');
-        header('X-Content-Type-Options: nosniff');
-        header('X-Frame-Options: SAMEORIGIN');
-
-        if ($row === null) {
-            http_response_code(404);
-            echo $this->renderTemplate('expired.html', [
-                'MESSAGE' => '支払いリンクが見つかりません。',
-                'BRAND_NAME' => 'B-Pay',
-                'SERVICE_NAME' => 'B-Pay',
-                'RETURN_URL' => '',
-            ]);
-            exit;
-        }
-
-        // Auto-expire if past expires_at
-        if ($row['status'] === 'pending' && strtotime($row['expires_at']) < time()) {
-            $now = date('Y-m-d H:i:s');
-            $this->db->update(
-                'payment_links',
-                ['status' => 'expired', 'updated_at' => $now],
-                ['id' => $row['id']]
-            );
-            $row['status'] = 'expired';
-        }
-
-        http_response_code(200);
-        echo match ($row['status']) {
-            'confirmed' => $this->renderConfirmed($row),
-            'expired'   => $this->renderExpired($row, 'この支払いリンクは有効期限が切れています。'),
-            'cancelled' => $this->renderExpired($row, 'この支払いリンクはキャンセルされました。'),
-            default     => $this->renderPayment($row),
-        };
-        exit;
+        return is_array($row) ? $row : null;
     }
 
     /**
@@ -152,7 +338,23 @@ class PaymentPageController
                 : htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $replacements['{{' . $key . '}}'] = $escaped;
         }
-        return strtr($html, $replacements);
+        $html = strtr($html, $replacements);
+
+        // Defensive cleanup: any `{{UPPER_CASE_KEY}}` that was not supplied by
+        // the caller gets blanked out so stale / missing variables never leak
+        // as literal "{{FOO}}" to the user (as happened in the initial
+        // renderExpired path).  Keeps the page clean and alerts us via the
+        // logs.
+        $html = preg_replace_callback(
+            '/\{\{([A-Z][A-Z0-9_]*)\}\}/',
+            static function (array $m): string {
+                error_log('[PaymentPage] missing placeholder: ' . $m[1]);
+                return '';
+            },
+            $html
+        ) ?? $html;
+
+        return $html;
     }
 
     /**
@@ -231,15 +433,22 @@ class PaymentPageController
      */
     private function renderExpired(array $row, string $message): string
     {
+        $expiredAt = !empty($row['expires_at'])
+            ? date('Y/m/d H:i', strtotime((string) $row['expires_at']))
+            : '';
+        $reference = (string) ($row['reference_number'] ?? '');
+
         return $this->renderTemplate('expired.html', [
             'MESSAGE'           => $message,
             'AMOUNT_FORMATTED'  => number_format((int) ($row['amount'] ?? 0)),
             'CURRENCY'          => (string) ($row['currency'] ?? 'JPY'),
-            'REFERENCE_NUMBER'  => (string) ($row['reference_number'] ?? ''),
+            'REFERENCE_NUMBER'  => $reference !== '' ? $reference : '—',
+            'EXPIRED_AT'        => $expiredAt !== '' ? $expiredAt : '—',
             'STATUS'            => (string) ($row['status'] ?? 'expired'),
             'BRAND_NAME'        => 'B-Pay',
             'SERVICE_NAME'      => 'B-Pay',
-            'RETURN_URL'        => '',
+            'SUPPORT_EMAIL'     => (string) config('support.email', 'support@b-pay.ink'),
+            'RETURN_URL'        => '/',
         ]);
     }
 
@@ -280,5 +489,62 @@ class PaymentPageController
         }
 
         return '';
+    }
+
+    /**
+     * Render the amount-entry form for awaiting_input / template links.
+     *
+     * @param array<string, mixed>    $row
+     * @param string|null             $errorMessage shown above the form on retry
+     * @param array<string, string>   $prev previous submit values to repopulate
+     */
+    private function renderAwaitingInput(array $row, ?string $errorMessage, array $prev): string
+    {
+        $min = $row['min_amount'] !== null ? (int) $row['min_amount'] : 1000;
+        $max = $row['max_amount'] !== null ? (int) $row['max_amount'] : 500_000;
+
+        $presetsRaw = $row['preset_amounts'];
+        $presets = [];
+        if (is_string($presetsRaw) && $presetsRaw !== '') {
+            $decoded = json_decode($presetsRaw, true);
+            if (is_array($decoded)) {
+                $presets = array_values(array_filter(array_map(
+                    static fn($v) => is_numeric($v) ? (int) $v : null,
+                    $decoded
+                )));
+            }
+        }
+
+        $intro = $row['link_type'] === 'template'
+            ? 'お振込金額をご入力ください。複数の方にご利用いただける共有リンクです。'
+            : 'お振込金額をご入力いただくと、お振込先情報を表示します。';
+
+        $errorHtml = '';
+        if ($errorMessage !== null && $errorMessage !== '') {
+            $errorHtml = '<div class="bcp-error">'
+                . htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8')
+                . '</div>';
+        }
+
+        return $this->renderTemplate('awaiting_input.html', [
+            'TOKEN'               => (string) $row['token'],
+            'SUBMIT_URL'          => '/p/' . $row['token'] . '/submit',
+            'TEMPLATE_INTRO'      => $intro,
+            'IS_TEMPLATE'         => $row['link_type'] === 'template' ? '1' : '0',
+            'BANK_NAME'           => (string) ($row['bank_name'] ?? ''),
+            'BRANCH_NAME'         => (string) ($row['branch_name'] ?? ''),
+            'ACCOUNT_NUMBER'      => (string) ($row['account_number'] ?? ''),
+            'ACCOUNT_TYPE'        => (string) ($row['account_type'] ?? '普通'),
+            'MIN_AMOUNT'          => (string) $min,
+            'MAX_AMOUNT'          => (string) $max,
+            'MIN_AMOUNT_FMT'      => number_format($min),
+            'MAX_AMOUNT_FMT'      => number_format($max),
+            'PRESET_AMOUNTS_JSON_RAW' => json_encode($presets, JSON_UNESCAPED_UNICODE),
+            'ERROR_HTML_RAW'      => $errorHtml,
+            'PREV_AMOUNT'         => (string) ($prev['amount'] ?? ''),
+            'PREV_KANA'           => (string) ($prev['kana'] ?? ''),
+            'BRAND_NAME'          => 'B-Pay',
+            'SERVICE_NAME'        => 'B-Pay',
+        ]);
     }
 }

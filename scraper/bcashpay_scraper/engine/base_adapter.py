@@ -81,6 +81,10 @@ class BankAdapter(ABC):
         self.bank_id = bank_id
         self.bank_name = bank_name
         self.credentials = credentials
+        # Latest observed account balance in JPY, populated by the concrete
+        # adapter during extract_transactions() when the statement page exposes
+        # a running-balance column. None when the adapter could not read it.
+        self.current_balance: Optional[int] = None
 
     @abstractmethod
     async def login(self, page: Page) -> None:

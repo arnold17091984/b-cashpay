@@ -1,0 +1,18 @@
+# B-Pay auto-generated improvement config
+# PHP-only project; no managed test framework is present today, so the
+# phase gates rely on syntax checks and curl-based smoke tests on the
+# live VPS.  Widen once tests are added.
+test_command: "find api admin -name '*.php' -not -path '*/vendor/*' -print0 | xargs -0 -P4 -I{} php -l {} >/dev/null"
+lint_command: ""
+type_check: ""
+e2e_command: ""
+security_scan: ""
+max_file_scan: 60
+exclude_patterns:
+  - "vendor/**"
+  - "node_modules/**"
+  - ".improve/**"
+  - "*.lock"
+  - "*.sqlite*"
+  - "_reference/**"
+  - "scraper/.venv/**"

@@ -10,6 +10,11 @@ $apiRoot   = dirname($adminRoot) . '/api';
 // Load Composer autoloader from admin/vendor (which maps BCashPay\ → api/src/)
 require $adminRoot . '/vendor/autoload.php';
 
+// Use JST consistently — MySQL connections init with time_zone='+09:00', so
+// PHP's date()/time() output must be in the same zone to avoid a 9-hour skew
+// on TIMESTAMP columns (e.g. expires_at on bind tokens and pending intents).
+date_default_timezone_set('Asia/Tokyo');
+
 // Load .env files (admin first, then api fallback)
 load_env($adminRoot . '/.env');
 load_env($apiRoot . '/.env');
@@ -20,6 +25,7 @@ session_name($sessionName);
 session_start([
     'cookie_httponly' => true,
     'cookie_samesite' => 'Lax',
+    'cookie_secure'   => true,  // TLS-only — admin panel is HTTPS-only in production
 ]);
 
 // ── Config override for SQLite path ─────────────────────────────────────────
@@ -43,6 +49,7 @@ use BCashPay\Admin\Controllers\BankAccountController;
 use BCashPay\Admin\Controllers\DepositController;
 use BCashPay\Admin\Controllers\ApiClientController;
 use BCashPay\Admin\Controllers\ScraperController;
+use BCashPay\Admin\Controllers\TelegramSettingsController;
 use BCashPay\Database;
 
 View::setViewsDir($adminRoot . '/views');
@@ -72,6 +79,7 @@ $router->get('/payments/new',                  [$payCtrl, 'create']);
 $router->post('/payments',                     [$payCtrl, 'store']);
 $router->get('/payments/{id}',                 [$payCtrl, 'show']);
 $router->post('/payments/{id}/cancel',         [$payCtrl, 'cancel']);
+$router->post('/payments/{id}/delete',         [$payCtrl, 'delete']);
 $router->post('/payments/{id}/match',          [$payCtrl, 'manualMatch']);
 
 // Bank accounts
@@ -100,6 +108,13 @@ $router->post('/clients/{id}/delete',  fn(string $id) => $clientCtrl->delete((in
 $scraperCtrl = new ScraperController($auth, $db);
 $router->get('/scraper',                   [$scraperCtrl, 'index']);
 $router->post('/scraper/{id}/run-now',     fn(string $id) => $scraperCtrl->runNow((int) $id));
+
+// Telegram settings (chat-issuance feature)
+$tgSettingsCtrl = new TelegramSettingsController($auth, $db);
+$router->get('/settings/telegram',          [$tgSettingsCtrl, 'index']);
+$router->post('/settings/telegram/toggle',  [$tgSettingsCtrl, 'toggle']);
+$router->post('/settings/telegram/bind',    [$tgSettingsCtrl, 'issueBindToken']);
+$router->post('/settings/telegram/unbind',  [$tgSettingsCtrl, 'unbind']);
 
 // ── Dispatch ─────────────────────────────────────────────────────────────────
 

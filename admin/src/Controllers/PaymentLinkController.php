@@ -175,43 +175,81 @@ class PaymentLinkController
 
     /**
      * POST /payments — create the payment link.
+     *
+     * Three modes (selected by `mode` form field):
+     *   - fixed (default)          : operator specifies amount + kana upfront
+     *   - awaiting_input           : single-use link with blank amount; customer fills it in
+     *   - template                 : reusable URL; each customer visit spawns a child link
+     *
+     * For awaiting_input/template we skip the per-customer fields and instead
+     * accept min_amount / max_amount / preset_amounts to constrain what the
+     * customer can submit.
      */
     public function store(): void
     {
         $this->auth->requireAuth();
         Auth::validateCsrf();
 
-        // Collect input
-        $amount       = (int) ($_POST['amount'] ?? 0);
-        $customerName = trim((string) ($_POST['customer_name'] ?? ''));
-        $customerKana = trim((string) ($_POST['customer_kana'] ?? ''));
-        $customerEmail= trim((string) ($_POST['customer_email'] ?? ''));
-        $externalId   = trim((string) ($_POST['external_id'] ?? ''));
+        $mode = (string) ($_POST['mode'] ?? 'fixed');
+        if (!in_array($mode, ['fixed', 'awaiting_input', 'template'], true)) {
+            $mode = 'fixed';
+        }
+
+        // Shared fields
         $clientId     = (int) ($_POST['api_client_id'] ?? 0);
         $bankId       = (int) ($_POST['bank_account_id'] ?? 0);
         $expiresHours = max(1, min(720, (int) ($_POST['expires_hours'] ?? 72)));
+        $errors       = [];
 
-        // Validate
-        $errors = [];
-        if ($amount <= 0) {
-            $errors['amount'] = '金額は 1 円以上で入力してください。';
-        }
-        if ($customerName === '') {
-            $errors['customer_name'] = '顧客名は必須です。';
-        }
-        if ($customerKana === '') {
-            $errors['customer_kana'] = '振込依頼人名（カナ）は必須です。';
-        } elseif (!preg_match('/^[\p{Katakana}\p{Hiragana}ー\s　A-Za-z0-9]+$/u', $customerKana)) {
-            $errors['customer_kana'] = 'カタカナ（または半角英数字）のみ入力してください。';
-        }
-        if ($customerEmail !== '' && !filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
-            $errors['customer_email'] = 'メールアドレスの形式が正しくありません。';
-        }
         if ($clientId <= 0) {
             $errors['api_client_id'] = 'API クライアントを選択してください。';
         }
         if ($bankId <= 0) {
             $errors['bank_account_id'] = '振込先銀行口座を選択してください。';
+        }
+
+        // Mode-specific collection
+        if ($mode === 'fixed') {
+            $amount       = (int) ($_POST['amount'] ?? 0);
+            $customerName = trim((string) ($_POST['customer_name'] ?? ''));
+            $customerKana = trim((string) ($_POST['customer_kana'] ?? ''));
+            $customerEmail= trim((string) ($_POST['customer_email'] ?? ''));
+            $externalId   = trim((string) ($_POST['external_id'] ?? ''));
+
+            if ($amount <= 0) {
+                $errors['amount'] = '金額は 1 円以上で入力してください。';
+            }
+            if ($customerName === '') {
+                $errors['customer_name'] = '顧客名は必須です。';
+            }
+            if ($customerKana === '') {
+                $errors['customer_kana'] = '振込依頼人名（カナ）は必須です。';
+            } elseif (!preg_match('/^[\p{Katakana}\p{Hiragana}ー\s　A-Za-z0-9]+$/u', $customerKana)) {
+                $errors['customer_kana'] = 'カタカナ（または半角英数字）のみ入力してください。';
+            }
+            if ($customerEmail !== '' && !filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
+                $errors['customer_email'] = 'メールアドレスの形式が正しくありません。';
+            }
+        } else {
+            // awaiting_input / template
+            $minAmount = (int) ($_POST['min_amount'] ?? 1000);
+            $maxAmount = (int) ($_POST['max_amount'] ?? 500_000);
+            $presetsIn = trim((string) ($_POST['preset_amounts'] ?? ''));
+            $presets   = [];
+            if ($presetsIn !== '') {
+                foreach (preg_split('/[,\s、　]+/u', $presetsIn) ?: [] as $v) {
+                    $v = (int) str_replace(',', '', $v);
+                    if ($v > 0) {
+                        $presets[] = $v;
+                    }
+                }
+            }
+            if ($minAmount < 1 || $minAmount > 10_000_000) {
+                $errors['min_amount'] = '最小金額は 1 〜 10,000,000 で指定してください。';
+            }
+            if ($maxAmount < $minAmount || $maxAmount > 10_000_000) {
+                $errors['max_amount'] = '最大金額は最小金額以上、10,000,000 以下で指定してください。';
+            }
         }
 
         if ($errors) {
@@ -220,9 +258,6 @@ class PaymentLinkController
             header('Location: /payments/new');
             exit;
         }
-
-        // Normalize hiragana → katakana
-        $customerKana = mb_convert_kana($customerKana, 'C');
 
         // Verify client and bank exist
         $client = $this->db->fetchOne(
@@ -239,32 +274,72 @@ class PaymentLinkController
             exit;
         }
 
-        // Generate unique reference number (7-digit numeric)
-        $reference = $this->generateReferenceNumber();
         $token     = bin2hex(random_bytes(16));
         $id        = 'bp_' . $this->generateUlid();
-        $expiresAt = date('Y-m-d H:i:s', time() + $expiresHours * 3600);
         $now       = date('Y-m-d H:i:s');
 
-        // Insert payment link
-        $this->db->query(
-            "INSERT INTO payment_links
-                (id, api_client_id, bank_account_id, external_id, reference_number,
-                 amount, currency, customer_name, customer_kana, customer_email,
-                 callback_url, status, token, expires_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'JPY', ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
-            [
-                $id, $clientId, $bankId,
-                $externalId !== '' ? $externalId : null,
-                $reference, $amount,
-                $customerName, $customerKana,
-                $customerEmail !== '' ? $customerEmail : null,
-                $client['callback_url'] ?? null,
-                $token, $expiresAt, $now, $now,
-            ]
-        );
+        if ($mode === 'fixed') {
+            // Normalize hiragana → katakana
+            $customerKana = mb_convert_kana($customerKana, 'C');
+            $reference    = $this->generateReferenceNumber();
+            $expiresAt    = date('Y-m-d H:i:s', time() + $expiresHours * 3600);
 
-        // Ensure a scraper task is queued for this bank
+            $this->db->query(
+                "INSERT INTO payment_links
+                    (id, api_client_id, bank_account_id, external_id, reference_number,
+                     amount, currency, customer_name, customer_kana, customer_email,
+                     callback_url, status, link_type, token, expires_at, source, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, 'JPY', ?, ?, ?, ?, 'pending', 'single', ?, ?, 'admin_web', ?, ?)",
+                [
+                    $id, $clientId, $bankId,
+                    $externalId !== '' ? $externalId : null,
+                    $reference, $amount,
+                    $customerName, $customerKana,
+                    $customerEmail !== '' ? $customerEmail : null,
+                    $client['callback_url'] ?? null,
+                    $token, $expiresAt, $now, $now,
+                ]
+            );
+        } elseif ($mode === 'awaiting_input') {
+            // Blank link — customer supplies amount + (optional) kana at /p/{token}.
+            $expiresAt     = date('Y-m-d H:i:s', time() + $expiresHours * 3600);
+            $presetsJson   = !empty($presets) ? json_encode($presets) : null;
+
+            $this->db->query(
+                "INSERT INTO payment_links
+                    (id, api_client_id, bank_account_id, callback_url,
+                     status, link_type, min_amount, max_amount, preset_amounts,
+                     currency, token, expires_at, source, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 'awaiting_input', 'awaiting_input', ?, ?, ?, 'JPY', ?, ?, 'admin_web', ?, ?)",
+                [
+                    $id, $clientId, $bankId,
+                    $client['callback_url'] ?? null,
+                    $minAmount, $maxAmount, $presetsJson,
+                    $token, $expiresAt, $now, $now,
+                ]
+            );
+        } else {
+            // mode === 'template' — reusable URL that spawns children.
+            $expiresAt     = date('Y-m-d H:i:s', strtotime('+1 year'));
+            $presetsJson   = !empty($presets) ? json_encode($presets) : null;
+
+            $this->db->query(
+                "INSERT INTO payment_links
+                    (id, api_client_id, bank_account_id, callback_url,
+                     status, link_type, min_amount, max_amount, preset_amounts,
+                     currency, token, expires_at, source, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 'pending', 'template', ?, ?, ?, 'JPY', ?, ?, 'admin_web', ?, ?)",
+                [
+                    $id, $clientId, $bankId,
+                    $client['callback_url'] ?? null,
+                    $minAmount, $maxAmount, $presetsJson,
+                    $token, $expiresAt, $now, $now,
+                ]
+            );
+        }
+
+        // Ensure a scraper task is queued for this bank (awaiting_input has
+        // no amount yet, but the task will pick up any children it spawns).
         $existingTask = $this->db->fetchOne(
             "SELECT id FROM scraper_tasks
              WHERE bank_account_id = ? AND status IN ('queued', 'running')
@@ -280,7 +355,12 @@ class PaymentLinkController
             );
         }
 
-        View::setFlash('success', '決済リンクを作成しました。下記のリンクをお客様にお送りください。');
+        $flash = match ($mode) {
+            'template'        => '使いまわせる決済リンク（テンプレート）を作成しました。URL をお客様にお送りください。',
+            'awaiting_input'  => '金額未確定の決済リンクを作成しました。お客様が金額を入力すると有効になります。',
+            default           => '決済リンクを作成しました。下記のリンクをお客様にお送りください。',
+        };
+        View::setFlash('success', $flash);
         header("Location: /payments/{$id}?created=1");
         exit;
     }
@@ -328,7 +408,7 @@ class PaymentLinkController
         Auth::validateCsrf();
 
         $link = $this->db->fetchOne(
-            "SELECT id, status FROM payment_links WHERE id = ? LIMIT 1",
+            "SELECT id, status, link_type FROM payment_links WHERE id = ? LIMIT 1",
             [$id]
         );
 
@@ -337,8 +417,11 @@ class PaymentLinkController
             exit;
         }
 
-        if ($link['status'] !== 'pending') {
-            View::setFlash('error', 'ステータスが pending の決済リンクのみキャンセルできます。');
+        // Cancellable statuses include awaiting_input (blank links issued by
+        // mistake) and pending (including template links).  Confirmed /
+        // expired / already-cancelled rows are terminal.
+        if (!in_array($link['status'], ['pending', 'awaiting_input'], true)) {
+            View::setFlash('error', 'キャンセルできないステータスです（既に入金済・期限切れ・キャンセル済）。');
             header("Location: /payments/{$id}");
             exit;
         }
@@ -350,8 +433,110 @@ class PaymentLinkController
             ['id' => $id]
         );
 
+        // Template cancellation cascades to every still-pending child so a
+        // customer who is mid-way through a template-spawned flow does not
+        // keep a live payment page open after the operator pulled the plug.
+        if ($link['link_type'] === 'template') {
+            $this->db->query(
+                "UPDATE payment_links
+                    SET status = 'cancelled', cancelled_at = ?, updated_at = ?
+                  WHERE parent_link_id = ? AND status = 'pending'",
+                [$now, $now, $id]
+            );
+        }
+
         View::setFlash('success', '決済リンクをキャンセルしました。');
         header("Location: /payments/{$id}");
+        exit;
+    }
+
+    /**
+     * POST /payments/{id}/delete — hard-delete a payment link row.
+     *
+     * Intentionally conservative:
+     *   - Confirmed (customer paid) rows are never deleted — they are the
+     *     financial record of an accepted deposit.
+     *   - Rows that have any matched deposits_payment_link_id reference
+     *     are never deleted — we would orphan the deposit.
+     *   - Template rows cascade to their children, but the cascade itself
+     *     re-applies the same safety rules: a confirmed child blocks the
+     *     delete.
+     *
+     * All deletes run in a single transaction so a template with a
+     * disqualifying child does not half-delete.
+     */
+    public function delete(string $id): void
+    {
+        $this->auth->requireAuth();
+        Auth::validateCsrf();
+
+        $link = $this->db->fetchOne(
+            "SELECT id, status, link_type FROM payment_links WHERE id = ? LIMIT 1",
+            [$id]
+        );
+        if ($link === null) {
+            http_response_code(404);
+            exit;
+        }
+
+        // A confirmed link carries actual money-received state; refuse.
+        if ($link['status'] === 'confirmed') {
+            View::setFlash('error', '入金確認済みのリンクは削除できません（キャンセルもできません）。');
+            header("Location: /payments/{$id}");
+            exit;
+        }
+
+        // Check for any attached deposit — even unmatched remnants keep
+        // us on the safe side.
+        $hasDeposit = $this->db->fetchOne(
+            "SELECT id FROM deposits WHERE payment_link_id = ? LIMIT 1",
+            [$id]
+        );
+        if ($hasDeposit !== null) {
+            View::setFlash('error', '入金レコードが紐付いているため削除できません。先に入金を解除してください。');
+            header("Location: /payments/{$id}");
+            exit;
+        }
+
+        try {
+            $this->db->transaction(function () use ($id, $link) {
+                if ($link['link_type'] === 'template') {
+                    // Any confirmed child blocks the whole cascade.
+                    $confirmedChild = $this->db->fetchOne(
+                        "SELECT id FROM payment_links
+                         WHERE parent_link_id = ? AND status = 'confirmed' LIMIT 1",
+                        [$id]
+                    );
+                    if ($confirmedChild !== null) {
+                        throw new \RuntimeException('このテンプレートから発行された子リンクに入金確認済みのものがあるため、削除できません。');
+                    }
+
+                    // Also guard against matched-deposit children.
+                    $childWithDeposit = $this->db->fetchOne(
+                        "SELECT pl.id FROM payment_links pl
+                         JOIN deposits d ON d.payment_link_id = pl.id
+                         WHERE pl.parent_link_id = ? LIMIT 1",
+                        [$id]
+                    );
+                    if ($childWithDeposit !== null) {
+                        throw new \RuntimeException('このテンプレートから発行された子リンクに入金レコードが紐付いているため、削除できません。');
+                    }
+
+                    $this->db->query(
+                        "DELETE FROM payment_links WHERE parent_link_id = ?",
+                        [$id]
+                    );
+                }
+                $this->db->query("DELETE FROM payment_links WHERE id = ?", [$id]);
+            });
+        } catch (\Throwable $e) {
+            View::setFlash('error', $e->getMessage());
+            header("Location: /payments/{$id}");
+            exit;
+        }
+
+        View::setFlash('success', '決済リンクを削除しました。');
+        header('Location: /payments');
         exit;
     }
 

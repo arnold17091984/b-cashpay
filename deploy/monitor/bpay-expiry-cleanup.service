@@ -1,0 +1,11 @@
+[Unit]
+Description=B-Pay — expire stale pending payment_links past expires_at
+After=mysql.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/bpay/api/.env
+ExecStart=/opt/bpay/monitor/bpay-expiry-cleanup.sh
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true

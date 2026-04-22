@@ -41,12 +41,15 @@
     </div>
 
     <div class="stat">
-        <div class="stat__label"><i class="bi bi-building"></i>アクティブリソース</div>
+        <div class="stat__label"><i class="bi bi-wallet2"></i>口座残高合計</div>
         <div class="stat__value">
-            <span class="stat__value--mono"><?= (int) $activeBanks ?></span>
-            <span class="stat__unit">口座</span>
+            <span class="stat__unit">¥</span>
+            <span class="stat__value--mono"><?= number_format((int) ($totalBalance ?? 0)) ?></span>
         </div>
-        <div class="stat__sub">APIクライアント <?= (int) $activeClients ?> 件</div>
+        <div class="stat__sub">
+            <?= (int) $activeBanks ?> 口座 &nbsp;·&nbsp;
+            APIクライアント <?= (int) $activeClients ?> 件
+        </div>
     </div>
 </div>
 
@@ -63,6 +66,49 @@
                 <canvas id="revenueChart"></canvas>
             </div>
         </div>
+    </div>
+
+    <!-- Scraper Status + Balance stack -->
+    <div style="display:grid;grid-template-rows:auto auto;gap:16px;">
+
+    <!-- Account Balances -->
+    <div class="card">
+        <div class="card__header">
+            <span class="card__title"><i class="bi bi-wallet2"></i>口座残高</span>
+        </div>
+        <?php if (empty($balances)): ?>
+        <div class="card__body">
+            <p class="text-muted" style="font-size:13px;margin:0;">銀行口座がありません。</p>
+        </div>
+        <?php else: ?>
+        <table class="table">
+            <tbody>
+                <?php foreach ($balances as $b): ?>
+                <tr>
+                    <td>
+                        <div style="font-size:13px;font-weight:500;color:var(--fg-0);"><?= htmlspecialchars($b['bank_name'], ENT_QUOTES, 'UTF-8') ?></div>
+                        <div class="sub mono">
+                            <?php if (!empty($b['branch_name'])): ?><?= htmlspecialchars($b['branch_name'], ENT_QUOTES, 'UTF-8') ?> / <?php endif; ?>
+                            <?= htmlspecialchars($b['account_number'], ENT_QUOTES, 'UTF-8') ?>
+                        </div>
+                        <?php if (!empty($b['balance_updated_at'])): ?>
+                        <div class="sub">更新: <?= View::datetime($b['balance_updated_at']) ?></div>
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-right nowrap">
+                        <?php if ($b['current_balance'] !== null): ?>
+                        <div class="mono" style="font-size:14px;font-weight:600;color:var(--fg-0);">
+                            ¥<?= number_format((int) $b['current_balance']) ?>
+                        </div>
+                        <?php else: ?>
+                        <span class="text-muted" style="font-size:12px;">未取得</span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php endif; ?>
     </div>
 
     <!-- Scraper Status -->
@@ -97,6 +143,8 @@
         </table>
         <?php endif; ?>
     </div>
+
+    </div><!-- /balance+scraper stack -->
 
 </div>
 

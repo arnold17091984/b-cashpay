@@ -1,0 +1,12 @@
+[Unit]
+Description=B-Pay health monitor (one-shot check)
+After=mysql.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/bpay/monitor/check.py
+# Security hardening — monitor only reads state, writes to its own dirs.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/bpay /var/lib/bpay-monitor /tmp
+PrivateTmp=true

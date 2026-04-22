@@ -10,7 +10,14 @@ Flow:
     1. Navigate to the login page.
     2. Fill ユーザーID + パスワード, click ログイン.
     3. Navigate directly to the deposit history URL (入出金明細).
-    4. Parse the transaction table.
+    4. Primary extraction path — download the bank's CSV export and parse it.
+       Rakuten Business caps the in-page table at the 50 most recent entries,
+       so table-scraping alone loses older deposits the moment a busy tenant
+       posts more than 50 transactions in one interval.  The CSV contains the
+       full history in a stable Shift_JIS format, so we use it whenever the
+       download button is reachable.
+    5. Fallback — if the CSV button is missing or the download fails, fall
+       back to parsing the on-page HTML table (legacy behaviour).
 
 Credentials stored in bank_accounts.scrape_credentials_json:
     {
@@ -27,15 +34,26 @@ Notes on selectors:
 from __future__ import annotations
 
 import asyncio
+import csv
 import hashlib
+import io
 import logging
+import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from playwright.async_api import Page, Locator, TimeoutError as PlaywrightTimeout
 
 from ..engine.base_adapter import BankAdapter, RawTransaction
+
+
+# Where Playwright saves CSV downloads before we parse them. Overridable so
+# deployments on read-only rootfs can redirect to a writable volume.
+CSV_DOWNLOAD_DIR = Path(
+    os.environ.get('SCRAPER_CSV_DOWNLOAD_DIR', '/tmp/bcashpay-scraper-csv')
+)
 
 
 log = logging.getLogger('bcashpay_scraper.adapters.rakuten')
@@ -51,12 +69,10 @@ class RakutenBusinessAdapter(BankAdapter):
         '?CurrentPageID=START&COMMAND=LOGIN'
     )
 
-    # Direct URL for 入出金明細 after login. SPA route — exact param may vary,
-    # adjust once you confirm in a real session.
-    transactions_url: str = (
-        'https://fes.rakuten-bank.co.jp/MS/main/RbS'
-        '?CurrentPageID=STMAIN'
-    )
+    # Fragment of the final statement URL used to confirm we have landed on
+    # the right page.  Reaching it requires a JSF form submit — see
+    # ``navigate_to_transactions`` — so we do not navigate to it directly.
+    transactions_url_fragment: str = 'BalanceInquiry.xhtml'
 
     session_timeout_minutes: int = 15
 
@@ -78,7 +94,12 @@ class RakutenBusinessAdapter(BankAdapter):
             return
 
         # ── 2. Fill ユーザーID ─────────────────────────────────────────────
+        # Rakuten uses JSF-style IDs containing colons (e.g. "LOGIN:USER_ID").
+        # The attribute-selector form is preferred over the shorthand #id form
+        # because CSS requires escaping the colon in the latter.
         user_input = await self._find_first_visible(page, [
+            'input[name="LOGIN:USER_ID"]',
+            'input[id="LOGIN:USER_ID"]',
             'input#LOGIN_ID',
             'input[name="LOGIN_ID"]',
             'input[name="loginId"]',
@@ -93,6 +114,8 @@ class RakutenBusinessAdapter(BankAdapter):
 
         # ── 3. Fill パスワード ─────────────────────────────────────────────
         pw_input = await self._find_first_visible(page, [
+            'input[name="LOGIN:LOGIN_PASSWORD"]',
+            'input[id="LOGIN:LOGIN_PASSWORD"]',
             'input#PASSWORD',
             'input[name="PASSWORD"]',
             'input[type="password"]',
@@ -102,7 +125,14 @@ class RakutenBusinessAdapter(BankAdapter):
         await pw_input.fill(self.credentials.password)
 
         # ── 4. Click ログイン ──────────────────────────────────────────────
+        # Rakuten's 法人ビジネス口座 renders the submit as an <a class="btn-login-01">
+        # whose onclick handler submits the JSF form, NOT a <button> or
+        # <input type="submit">.  Match the <a> first, fall through to
+        # generic buttons for forward-compatibility.
         submit = await self._find_first_visible(page, [
+            'a.btn-login-01',
+            'a.btn-login01',
+            'a:has-text("ログイン")',
             'button:has-text("ログイン")',
             'input[type="submit"][value*="ログイン"]',
             'input[type="image"][alt*="ログイン"]',
@@ -112,18 +142,36 @@ class RakutenBusinessAdapter(BankAdapter):
             raise RuntimeError(f'[{self.bank_name}] login submit button not found')
 
         log.info(f'[{self.bank_name}] submitting login form')
-        await submit.click()
+
+        # Rakuten's JSF form-submit runs asynchronously inside the <a> onclick.
+        # Wait for the subsequent navigation to finish BEFORE probing body
+        # text, otherwise we race the redirect chain and see the login page.
+        try:
+            async with page.expect_navigation(
+                wait_until='domcontentloaded',
+                timeout=30_000,
+            ):
+                await submit.click()
+        except PlaywrightTimeout:
+            # Some flows stay on the same URL and only swap DOM; not fatal yet.
+            log.info(f'[{self.bank_name}] no navigation after click — continuing')
+
+        # Give any post-redirect JSF view a moment to finish rendering.
+        try:
+            await page.wait_for_load_state('networkidle', timeout=15_000)
+        except PlaywrightTimeout:
+            pass
 
         # ── 5. Wait for post-login dashboard ───────────────────────────────
-        # Rakuten redirects to a dashboard page after login. Detect via any
-        # of these signals. Timeout if none appear within 30 seconds.
+        # Rakuten redirects through an /XMS/security/... page before landing
+        # on the dashboard, so widen the timeout to cover the full chain.
         try:
             await page.wait_for_function(
                 """() => {
                     const t = document.body?.innerText || '';
-                    return /ログアウト|口座残高|入出金|マイ|ホーム/.test(t);
+                    return /ログアウト|口座残高|入出金明細|マイページ|ホーム画面/.test(t);
                 }""",
-                timeout=30_000,
+                timeout=60_000,
             )
         except PlaywrightTimeout as exc:
             # Check for an inline error message before giving up.
@@ -140,32 +188,42 @@ class RakutenBusinessAdapter(BankAdapter):
         log.info(f'[{self.bank_name}] login OK, URL: {page.url}')
 
     async def navigate_to_transactions(self, page: Page) -> None:
-        """Navigate to the 入出金明細 (deposit history) page."""
+        """Navigate to the 入出金明細 (deposit history) page.
+
+        The real statement page is a JSF view (BalanceInquiry.xhtml) and
+        cannot be reached by a direct URL — we must click the 入出金明細
+        menu link whose onclick handler submits the framework form.
+        """
         log.info(f'[{self.bank_name}] navigating to transactions page')
 
-        # Try direct URL first. Rakuten SPA typically accepts this.
-        await page.goto(self.transactions_url, wait_until='domcontentloaded', timeout=60_000)
-        await asyncio.sleep(2)
-
-        # If direct URL did not land on a transaction view, try clicking a
-        # menu link labelled 入出金明細 as fallback.
-        if not await self._has_transaction_table(page):
-            log.info(f'[{self.bank_name}] direct URL did not load table, trying menu link')
-            link = await self._find_first_visible(page, [
-                'a:has-text("入出金明細")',
-                'a:has-text("明細照会")',
-                'a[href*="STMAIN"]',
-            ])
-            if link is not None:
-                await link.click()
-                await asyncio.sleep(2)
-
-        # Final check — the table must be present before we extract.
-        try:
-            await page.wait_for_selector(
-                'table tbody tr, .transaction-list, [data-role="transaction-list"]',
-                timeout=15_000,
+        # ── 1. Click the 入出金明細 link ────────────────────────────────────
+        link = await self._find_first_visible(page, [
+            'a:has-text("入出金明細")',
+            'a:has-text("明細照会")',
+        ])
+        if link is None:
+            raise RuntimeError(
+                f'[{self.bank_name}] 入出金明細 link not found on post-login page '
+                f'(url={page.url})'
             )
+        await link.click()
+
+        # ── 2. Confirm we landed on the statement page ────────────────────
+        try:
+            await page.wait_for_url(
+                f'**/{self.transactions_url_fragment}**',
+                timeout=20_000,
+            )
+        except PlaywrightTimeout as exc:
+            raise RuntimeError(
+                f'[{self.bank_name}] statement page did not load '
+                f'(expected url containing {self.transactions_url_fragment!r}, '
+                f'got {page.url})'
+            ) from exc
+
+        # ── 3. Confirm the statement table is present ─────────────────────
+        try:
+            await page.wait_for_selector('table tbody tr', timeout=15_000)
         except PlaywrightTimeout as exc:
             raise RuntimeError(
                 f'[{self.bank_name}] transaction table not found on {page.url}'
@@ -174,55 +232,193 @@ class RakutenBusinessAdapter(BankAdapter):
         log.info(f'[{self.bank_name}] transactions page ready, URL: {page.url}')
 
     async def extract_transactions(self, page: Page) -> List[RawTransaction]:
-        """Parse deposit rows from the transaction table.
+        """Extract deposit rows.
 
-        Expected column layout (common Rakuten Bank format):
-            col 0 : 日付       e.g. "2026/04/16"  (sometimes with year header)
-            col 1 : 摘要       e.g. "振込 1234567 ヤマダ タロウ"
-            col 2 : 入金金額   e.g. "10,000" or "10,000円"
-            col 3 : 出金金額   empty for deposit rows
-            col 4 : 残高       ignored
+        Primary path: download Rakuten's CSV export (complete history, stable
+        format).  Fallback: parse the on-page HTML table (capped at ~50 rows).
 
-        If the layout differs, adjust the index constants below.
+        Row-level failures never abort the scan; the worst case is a single
+        malformed row being skipped with a warning.
+        """
+        csv_txns = await self._extract_via_csv(page)
+        if csv_txns is not None:
+            log.info(
+                f'[{self.bank_name}] extracted {len(csv_txns)} deposit transactions via CSV'
+            )
+            return csv_txns
+
+        log.warning(
+            f'[{self.bank_name}] CSV download unavailable, falling back to table parse '
+            f'(capped at ~50 rows — older deposits may be missed)'
+        )
+        return await self._extract_via_table(page)
+
+    async def _extract_via_csv(self, page: Page) -> Optional[List[RawTransaction]]:
+        """Try the CSV-download path.
+
+        Returns ``None`` when the CSV button is not reachable or the download
+        itself fails — the caller then falls back to table parsing.  Returns
+        an empty list when the CSV downloaded cleanly but held no deposits.
+        """
+        download_btn = await self._find_first_visible(page, [
+            "input[value*='ダウンロード']",
+            "button:has-text('ダウンロード')",
+            "a:has-text('ダウンロード')",
+            "input[type='submit'][value*='CSV']",
+            "a:has-text('CSV')",
+        ])
+        if download_btn is None:
+            return None
+
+        CSV_DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+        try:
+            async with page.expect_download(timeout=30_000) as download_info:
+                await download_btn.click()
+            download = await download_info.value
+            csv_path = CSV_DOWNLOAD_DIR / download.suggested_filename
+            await download.save_as(str(csv_path))
+            log.info(
+                f'[{self.bank_name}] CSV downloaded: {csv_path.name} '
+                f'({csv_path.stat().st_size} bytes)'
+            )
+        except Exception as exc:  # noqa: BLE001 — any failure triggers fallback
+            log.warning(f'[{self.bank_name}] CSV download failed: {exc}')
+            return None
+
+        return self._parse_csv_file(csv_path)
+
+    def _parse_csv_file(self, csv_path: Path) -> List[RawTransaction]:
+        """Parse a Rakuten Bank CSV into RawTransactions.
+
+        Rakuten CSV columns (legacy 楽天銀行フォーマット):
+            取引日, 入出金内容, 入出金（円）, 残高（円）
+
+        Incoming amounts are positive; withdrawals negative — we keep only
+        positive rows (deposits).  Encoding is usually Shift_JIS but we try
+        several to be safe.
         """
         results: List[RawTransaction] = []
 
-        rows = page.locator('table tbody tr')
-        count = await rows.count()
-        log.info(f'[{self.bank_name}] found {count} table rows')
-
-        COL_DATE = 0
-        COL_DESC = 1
-        COL_DEPOSIT = 2
-        COL_WITHDRAW = 3
-
-        for i in range(count):
-            row = rows.nth(i)
+        content = None
+        for encoding in ('shift_jis', 'cp932', 'utf-8-sig', 'utf-8'):
             try:
-                cells = await row.locator('td').all_text_contents()
-                if len(cells) < COL_DEPOSIT + 1:
-                    continue  # Header or separator row
+                content = csv_path.read_text(encoding=encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        if content is None:
+            log.error(f'[{self.bank_name}] CSV encoding not recognised: {csv_path}')
+            return results
 
-                date_str = cells[COL_DATE].strip()
-                description = cells[COL_DESC].strip()
-                deposit_str = cells[COL_DEPOSIT].strip()
-                withdraw_str = cells[COL_WITHDRAW].strip() if len(cells) > COL_WITHDRAW else ''
+        reader = csv.reader(io.StringIO(content))
+        rows = list(reader)
+        if not rows:
+            return results
 
-                # Skip withdrawals and zero-amount rows
-                if withdraw_str and self._parse_amount(withdraw_str) > 0:
-                    continue
-                if not deposit_str:
+        # Find the header row; data starts on the next row.
+        header_idx = 0
+        for i, row in enumerate(rows):
+            if any('取引日' in cell for cell in row):
+                header_idx = i
+                break
+
+        skipped = 0
+        for idx, row in enumerate(rows[header_idx + 1:]):
+            if len(row) < 3:
+                continue
+
+            date_str = row[0].strip().strip('"')
+            description = row[1].strip().strip('"')
+            amount_str = row[2].strip().strip('"').replace(',', '')
+
+            if not date_str or not amount_str:
+                continue
+
+            try:
+                amount = int(amount_str)
+            except ValueError:
+                skipped += 1
+                continue
+
+            # Deposits only — negative means withdrawal.
+            if amount <= 0:
+                continue
+
+            results.append(RawTransaction(
+                payment_id=self._make_payment_id(date_str, description, amount),
+                amount=amount,
+                date=self._parse_date(date_str),
+                depositor_name=description,
+                memo='',
+            ))
+
+        if skipped:
+            log.debug(f'[{self.bank_name}] CSV skipped {skipped} unparseable rows')
+        return results
+
+    async def _extract_via_table(self, page: Page) -> List[RawTransaction]:
+        """Parse deposit rows from the on-page transaction table (fallback).
+
+        Rakuten Business BalanceInquiry.xhtml renders each transaction as a
+        4-column row in a ``table.table01`` table:
+            col 0 : 取引日          e.g. "2026/04/16"
+            col 1 : 入出金内容       e.g. "セブン銀行 ... タナカ タロウ"
+            col 2 : 入出金（円）     signed — positive = deposit, negative = withdrawal
+            col 3 : 残高（円）       running balance — latest row = current balance
+
+        As a side-effect the current account balance (balance column of the
+        newest row) is captured on ``self.current_balance`` so the runner can
+        forward it to the API.  None when no rows are visible.
+
+        Rows are extracted via JS evaluate() with direct-child selectors so
+        that cells from nested layout tables do not bleed into the data.
+
+        The view is capped at ~50 rows by the bank; prefer the CSV path when
+        the customer specifies a download period that exposes it.
+        """
+        rows = await page.evaluate(r"""() => {
+            const datePat = /^\d{4}\/\d{1,2}\/\d{1,2}/;
+            const out = [];
+            document.querySelectorAll('table.table01').forEach(t => {
+                t.querySelectorAll(':scope > tbody > tr, :scope > tr').forEach(tr => {
+                    const cells = tr.querySelectorAll(':scope > td');
+                    if (cells.length < 4) return;
+                    const first = (cells[0].innerText || '').trim();
+                    if (!datePat.test(first)) return;
+                    out.push([
+                        first,
+                        (cells[1].innerText || '').trim(),
+                        (cells[2].innerText || '').trim(),
+                        (cells[3].innerText || '').trim(),
+                    ]);
+                });
+            });
+            return out;
+        }""")
+        log.info(f'[{self.bank_name}] found {len(rows)} transaction rows')
+
+        # Newest row first → its balance column is the current account balance.
+        if rows:
+            latest_balance = self._parse_signed_amount(rows[0][3])
+            if latest_balance != 0 or rows[0][3].strip():
+                self.current_balance = latest_balance
+                log.info(f'[{self.bank_name}] current balance: {latest_balance:,} JPY')
+
+        results: List[RawTransaction] = []
+        for i, cells in enumerate(rows):
+            try:
+                date_str, description, amount_str, _balance_str = cells
+                if not date_str or not amount_str:
                     continue
 
-                amount = self._parse_amount(deposit_str)
-                if amount <= 0:
-                    continue
-                if not date_str:
-                    continue
+                signed_amount = self._parse_signed_amount(amount_str)
+                if signed_amount <= 0:
+                    continue  # withdrawal / zero-amount
 
                 results.append(RawTransaction(
-                    payment_id=self._make_payment_id(date_str, description, amount),
-                    amount=amount,
+                    payment_id=self._make_payment_id(date_str, description, signed_amount),
+                    amount=signed_amount,
                     date=self._parse_date(date_str),
                     depositor_name=description,
                     memo='',
@@ -230,8 +426,25 @@ class RakutenBusinessAdapter(BankAdapter):
             except Exception as e:  # noqa: BLE001 — row-level failure must not stop scan
                 log.warning(f'[{self.bank_name}] row {i} parse failed: {e}')
 
-        log.info(f'[{self.bank_name}] extracted {len(results)} deposit transactions')
+        log.info(f'[{self.bank_name}] extracted {len(results)} deposit transactions via table')
         return results
+
+    @staticmethod
+    def _parse_signed_amount(s: str) -> int:
+        """Parse a Japanese signed bank amount string to an integer JPY value.
+
+        Handles '¥10,000', '10,000円', '-229', '‐50,000' (full-width minus),
+        full-width digits, etc.  Negative values are returned negative so the
+        caller can distinguish deposits from withdrawals.
+        """
+        import unicodedata
+        normalised = unicodedata.normalize('NFKC', s)
+        negative = bool(re.match(r'^\s*[-\u2212\u30fc\uff0d]', normalised))
+        digits = re.sub(r'[^\d]', '', normalised)
+        if not digits:
+            return 0
+        value = int(digits)
+        return -value if negative else value
 
     async def logout(self, page: Page) -> None:
         """Attempt a graceful logout. Failure is non-fatal."""

@@ -26,3 +26,18 @@ $info    = View::flash('info');
     <button type="button" class="btn-close" onclick="this.parentElement.remove()" aria-label="閉じる">&times;</button>
 </div>
 <?php endif; ?>
+
+<?php if ($success !== null || $info !== null): ?>
+<script>
+// Remove the auto-dismiss flash nodes once the fade-out animation
+// completes so the floating toast doesn't linger as an invisible
+// overlay intercepting clicks.
+document.querySelectorAll('.alert-auto-dismiss').forEach(function (el) {
+    el.addEventListener('animationend', function (e) {
+        if (e.animationName === 'fadeOutAlert') {
+            el.remove();
+        }
+    });
+});
+</script>
+<?php endif; ?>

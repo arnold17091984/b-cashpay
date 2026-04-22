@@ -20,19 +20,31 @@ use RuntimeException;
 class TelegramNotifier
 {
     private string $botToken;
-    private string $chatId;
+    /** @var string[] */
+    private array $chatIds;
     private bool $enabled;
 
     public function __construct(private readonly Database $db)
     {
         $this->botToken = (string) config('telegram.bot_token');
-        $this->chatId   = (string) config('telegram.chat_id');
-        $this->enabled  = $this->botToken !== '' && $this->chatId !== '';
+
+        // Accept either TELEGRAM_CHAT_ID (single or comma-separated) or
+        // TELEGRAM_CHAT_IDS (explicit list).  Broadcasting to multiple chats
+        // lets us run e.g. an ops group + an audit group in parallel without
+        // code changes — just edit .env.
+        $raw = (string) config('telegram.chat_id', '');
+        $list = (array) config('telegram.chat_ids', []);
+        if (count($list) === 0 && $raw !== '') {
+            $list = array_map('trim', explode(',', $raw));
+        }
+        $this->chatIds = array_values(array_filter($list, static fn($v) => (string) $v !== ''));
+        $this->enabled = $this->botToken !== '' && count($this->chatIds) > 0;
     }
 
     /**
-     * Send a raw HTML-formatted message.
-     * Returns true on success, false on any failure (no exception thrown).
+     * Send a raw HTML-formatted message to every configured chat.
+     * Returns true when ALL chats accept the message; false if any fails
+     * (failures are logged per-chat but do not short-circuit the loop).
      */
     public function send(string $message, ?string $paymentLinkId = null): bool
     {
@@ -40,12 +52,36 @@ class TelegramNotifier
             return false;
         }
 
+        $allOk = true;
+        foreach ($this->chatIds as $chatId) {
+            $success = $this->sendOne($chatId, $message);
+            $allOk = $allOk && $success;
+
+            // Persist audit log — best effort, never throw
+            try {
+                $this->db->insert('telegram_logs', [
+                    'payment_link_id' => $paymentLinkId,
+                    'chat_id'         => $chatId,
+                    'message'         => $message,
+                    'sent_at'         => $success ? now_jst() : null,
+                    'created_at'      => now_jst(),
+                ]);
+            } catch (\Throwable) {
+                // Logging failure must not affect the API response
+            }
+        }
+
+        return $allOk;
+    }
+
+    private function sendOne(string $chatId, string $message): bool
+    {
         $context = stream_context_create([
             'http' => [
                 'method'  => 'POST',
                 'header'  => "Content-Type: application/json\r\n",
                 'content' => json_encode([
-                    'chat_id'                  => $this->chatId,
+                    'chat_id'                  => $chatId,
                     'text'                     => $message,
                     'parse_mode'               => 'HTML',
                     'disable_web_page_preview' => true,
@@ -55,24 +91,8 @@ class TelegramNotifier
             ],
         ]);
 
-        $url    = "https://api.telegram.org/bot{$this->botToken}/sendMessage";
-        $result = @file_get_contents($url, false, $context);
-        $success = $result !== false;
-
-        // Persist audit log — best effort, never throw
-        try {
-            $this->db->insert('telegram_logs', [
-                'payment_link_id' => $paymentLinkId,
-                'chat_id'         => $this->chatId,
-                'message'         => $message,
-                'sent_at'         => $success ? now_jst() : null,
-                'created_at'      => now_jst(),
-            ]);
-        } catch (\Throwable) {
-            // Logging failure must not affect the API response
-        }
-
-        return $success;
+        $url = "https://api.telegram.org/bot{$this->botToken}/sendMessage";
+        return @file_get_contents($url, false, $context) !== false;
     }
 
     /**
@@ -100,6 +120,36 @@ class TelegramNotifier
     }
 
     /**
+     * Notify that a customer filled in a blank payment link (awaiting_input)
+     * or spawned a child from a template.  This is distinct from
+     * notifyPaymentCreated, which fires when an operator issues a link from
+     * the admin dashboard / Telegram bot — the wording here tells the ops
+     * team "a payment page just got populated by the customer, expect a
+     * deposit shortly" so they can keep an eye on the matching flow.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function notifyCustomerPaymentRequest(array $data): bool
+    {
+        $amount    = number_format((int) ($data['amount'] ?? 0));
+        $kana      = $this->escapeHtml((string) ($data['customer_kana'] ?? '(未入力)'));
+        $ref       = $this->escapeHtml((string) ($data['reference_number'] ?? '-'));
+        $id        = $this->escapeHtml((string) ($data['id'] ?? '-'));
+        $source    = $this->escapeHtml((string) ($data['source'] ?? 'customer_input'));
+
+        $msg = "\xF0\x9F\x93\xA5 <b>振込リクエスト</b>\n\n"
+            . "ID: <code>{$id}</code>\n"
+            . "金額: {$amount} JPY\n"
+            . "振込名義カナ: {$kana}\n"
+            . "参照番号: <code>{$ref}</code>\n"
+            . "種別: {$source}\n"
+            . "受付日時: " . now_jst() . "\n\n"
+            . "<i>次回スクレイパーポーリング（最大60秒以内）でマッチ確認を開始します。</i>";
+
+        return $this->send($msg, $data['id'] ?? null);
+    }
+
+    /**
      * Notify that a deposit was detected and matched to a payment link.
      *
      * @param array<string, mixed> $data
@@ -112,15 +162,58 @@ class TelegramNotifier
         $id        = $this->escapeHtml((string) ($data['id'] ?? '-'));
         $depositor = $this->escapeHtml((string) ($data['depositor_name'] ?? '-'));
 
+        $balanceLine = $this->formatBalanceLine(
+            isset($data['bank_account_id']) ? (int) $data['bank_account_id'] : null
+        );
+
         $msg = "\xE2\x9C\x85 <b>入金確認完了</b>\n\n"
             . "ID: <code>{$id}</code>\n"
             . "お客様名: {$name}\n"
             . "振込人名: {$depositor}\n"
             . "金額: {$amount} JPY\n"
             . "参照番号: <code>{$ref}</code>\n"
-            . "確認日時: " . now_jst();
+            . "確認日時: " . now_jst()
+            . $balanceLine;
 
         return $this->send($msg, $data['id'] ?? null);
+    }
+
+    /**
+     * Build the "現在の口座残高" trailer for confirmation messages.
+     *
+     * Returns an empty string (no trailer) when the bank_account_id is
+     * missing or the row cannot be read — the caller should never fail
+     * over a decorative line.  Any sub-hour staleness is called out so
+     * operators don't mistake an old cached value for the live balance.
+     */
+    private function formatBalanceLine(?int $bankAccountId): string
+    {
+        if ($bankAccountId === null || $bankAccountId <= 0) {
+            return '';
+        }
+
+        $row = null;
+        try {
+            $row = $this->db->fetchOne(
+                'SELECT current_balance, balance_updated_at
+                   FROM bank_accounts
+                  WHERE id = ?
+                  LIMIT 1',
+                [$bankAccountId]
+            );
+        } catch (\Throwable) {
+            // fall through — row stays null and we return '' below.
+        }
+
+        if ($row === null || !isset($row['current_balance'])) {
+            return '';
+        }
+
+        $balance = number_format((int) $row['current_balance']);
+        $updatedAt = (string) ($row['balance_updated_at'] ?? '');
+        $updatedLabel = $updatedAt !== '' ? " <i>(at {$this->escapeHtml($updatedAt)})</i>" : '';
+
+        return "\n口座残高: {$balance} JPY{$updatedLabel}";
     }
 
     /**

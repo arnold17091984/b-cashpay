@@ -59,6 +59,9 @@ class Database
 
             try {
                 $this->pdo = new PDO($dsn, $username, $password, $options);
+                // Enable ANSI_QUOTES so the shared query builder (written with double-quoted
+                // identifiers for SQLite portability) runs correctly on MySQL as well.
+                $this->pdo->exec("SET sql_mode = 'ANSI_QUOTES,STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'");
             } catch (PDOException $e) {
                 // Do not expose DB credentials in error messages
                 throw new RuntimeException('Database connection failed: ' . $e->getMessage());

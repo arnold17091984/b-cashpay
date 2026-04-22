@@ -17,7 +17,8 @@ use BCashPay\Services\WebhookSender;
  * They are NOT exposed to public API clients.
  *
  * POST /api/internal/scraper/deposits — Receive matched deposits
- * GET  /api/internal/scraper/tasks   — Get pending scraper tasks
+ * GET  /api/internal/scraper/tasks    — Get pending scraper tasks
+ * POST /api/internal/scraper/status   — Receive scraper run status / health report
  */
 class ScraperWebhookController
 {
@@ -64,12 +65,11 @@ class ScraperWebhookController
             json_error('Invalid JSON payload', 400);
         }
 
-        $deposits      = $data['deposits'] ?? [];
-        $bankAccountId = isset($data['bank_account_id']) ? (int) $data['bank_account_id'] : null;
-
-        if (!is_array($deposits) || count($deposits) === 0) {
-            json_response(['success' => true, 'matched' => 0, 'message' => 'No deposits received']);
-        }
+        $deposits       = $data['deposits'] ?? [];
+        $bankAccountId  = isset($data['bank_account_id']) ? (int) $data['bank_account_id'] : null;
+        $currentBalance = array_key_exists('current_balance', $data) && is_numeric($data['current_balance'])
+            ? (int) $data['current_balance']
+            : null;
 
         // Verify bank account exists when provided
         if ($bankAccountId !== null) {
@@ -80,6 +80,27 @@ class ScraperWebhookController
             if ($bankAccount === null) {
                 json_error('Bank account not found', 404);
             }
+        }
+
+        // Persist balance whenever the scraper reports one, independent of
+        // whether there are deposits to match.
+        if ($bankAccountId !== null && $currentBalance !== null) {
+            $this->db->update(
+                'bank_accounts',
+                [
+                    'current_balance'    => $currentBalance,
+                    'balance_updated_at' => now_jst(),
+                ],
+                ['id' => $bankAccountId]
+            );
+        }
+
+        if (!is_array($deposits) || count($deposits) === 0) {
+            json_response([
+                'success' => true,
+                'matched' => 0,
+                'message' => $currentBalance !== null ? 'Balance updated, no deposits' : 'No deposits received',
+            ]);
         }
 
         $matched  = 0;
@@ -221,6 +242,84 @@ class ScraperWebhookController
     }
 
     /**
+     * POST /api/internal/scraper/status
+     * Receive a per-run status / health report from the Python scraper.
+     *
+     * The scraper posts a lightweight summary at the end of every cycle so
+     * the API-side health view has an end-to-end picture (login succeeded,
+     * N transactions extracted, M matched, duration).  This endpoint does
+     * not mutate domain state — it only records the reported run metadata
+     * into scraper_tasks for observability, which the monitor and admin
+     * dashboard can read.
+     *
+     * Expected payload:
+     * {
+     *   "bank_account_id": 1,
+     *   "status": "success" | "failure",
+     *   "message": "Extracted 24, matched 0",
+     *   "stats": {
+     *     "transactions_found": 24,
+     *     "transactions_matched": 0,
+     *     "duration_seconds": 38.14
+     *   }
+     * }
+     */
+    public function receiveStatus(): never
+    {
+        $rawBody = $_SERVER['BCASHPAY_RAW_BODY'] ?? file_get_contents('php://input');
+        $data    = json_decode((string) $rawBody, true);
+
+        if (!is_array($data)) {
+            json_error('Invalid JSON payload', 400);
+        }
+
+        $bankAccountId = isset($data['bank_account_id']) ? (int) $data['bank_account_id'] : null;
+        $status        = (string) ($data['status'] ?? '');
+        $message       = isset($data['message']) ? (string) $data['message'] : null;
+        $stats         = isset($data['stats']) && is_array($data['stats']) ? $data['stats'] : [];
+
+        if ($bankAccountId === null || $bankAccountId <= 0) {
+            json_error('bank_account_id is required', 400);
+        }
+        if ($status === '') {
+            json_error('status is required', 400);
+        }
+
+        // Accept 'success' / 'failure' from the scraper and normalise to the
+        // scraper_tasks enum used elsewhere in the system.
+        $normalisedStatus = match ($status) {
+            'success', 'completed' => 'completed',
+            'failure', 'failed'    => 'failed',
+            default                 => 'completed',
+        };
+
+        $transactionsFound   = (int) ($stats['transactions_found'] ?? 0);
+        $transactionsMatched = (int) ($stats['transactions_matched'] ?? 0);
+        $durationSeconds     = isset($stats['duration_seconds']) ? (float) $stats['duration_seconds'] : null;
+
+        // Note: run_bank_scrape() in runner.py also inserts a scraper_tasks
+        // row locally, so this endpoint is additive/redundant by design.
+        // We log it anyway so an API-only observer has the full picture.
+        $this->db->insert('scraper_tasks', [
+            'bank_account_id'      => $bankAccountId,
+            'status'               => $normalisedStatus,
+            'last_run_at'          => now_jst(),
+            'run_count'            => 1,
+            'transactions_found'   => $transactionsFound,
+            'transactions_matched' => $transactionsMatched,
+            'duration_seconds'     => $durationSeconds,
+            'error_message'        => $normalisedStatus === 'failed' ? $message : null,
+            'created_at'           => now_jst(),
+            'updated_at'           => now_jst(),
+        ]);
+
+        json_response([
+            'success' => true,
+            'status'  => $normalisedStatus,
+        ]);
+    }
+
+    /**
      * Process a single deposit: deduplicate, persist, and attempt matching.
      *
      * Matching algorithm (ported from BankScraperController::scraperDeposits):
@@ -255,7 +354,40 @@ class ScraperWebhookController
         // mb_convert_kana 'as': 全角英数・記号 -> 半角, 全角スペース -> 半角スペース
         $normalizedDepositor = mb_strtoupper(mb_convert_kana($depositorName, 'as'));
 
-        // Stage 1: candidate set — same amount, status=pending, same bank, created <= 14 days ago
+        // Parse the deposit timestamp.  If it is unparseable we refuse to
+        // match — silently defaulting to "now" would undo the guard below
+        // and let stale bank-history rows match freshly-created links.
+        $depositTs = strtotime((string) $transactionDate);
+        if ($depositTs === false) {
+            // Persist as unmatched so the operator can see it.
+            $this->db->insert('deposits', [
+                'bank_account_id'    => $bankAccountId,
+                'payment_link_id'    => null,
+                'depositor_name'     => $depositorName,
+                'amount'             => $amount,
+                'transaction_date'   => null,
+                'bank_transaction_id'=> $bankTransactionId,
+                'matched_at'         => null,
+                'raw_data'           => json_encode($rawData),
+                'created_at'         => now_jst(),
+            ]);
+            return 'unmatched';
+        }
+
+        // Stage 1: candidate set — status=pending, same bank, created <= 14
+        // days ago, and the candidate must have been created on or before
+        // the deposit's calendar day (a deposit cannot belong to a link
+        // that did not yet exist when the money arrived — this stops old
+        // deposits in bank history from being attributed to newly-created
+        // links).
+        //
+        // The upper bound is compared at the **date** level rather than the
+        // timestamp level because Rakuten's transaction list exposes only
+        // the date (no clock time), so the scraper hydrates it to 00:00 JST.
+        // A strict timestamp compare would exclude every link created after
+        // midnight on the same day the deposit posted — i.e. the common
+        // case of "customer creates a link at 16:24 JST and pays the same
+        // afternoon".
         $candidates = $this->db->fetchAll(
             'SELECT pl.id, pl.reference_number, pl.customer_name,
                     pl.callback_url, pl.amount,
@@ -267,30 +399,35 @@ class ScraperWebhookController
                AND pl.amount = ?
                AND pl.status = ?
                AND pl.created_at >= ?
+               AND DATE(pl.created_at) <= DATE(?)
              ORDER BY pl.created_at DESC',
             [
                 $bankAccountId,
                 $amount,
                 'pending',
                 date('Y-m-d H:i:s', strtotime('-14 days')),
+                date('Y-m-d H:i:s', $depositTs),
             ]
         );
 
         $matched = null;
 
+        // Stage 2: STRICT reference-number presence check.  The request's
+        // reference_number must appear verbatim (after full-width→half-width
+        // normalisation) in the depositor-name string.
+        //
+        // We deliberately do NOT fall back to a "single-candidate amount
+        // match" — that behaviour lets past deposits and look-alike
+        // transactions attach themselves to unrelated links.  If no
+        // reference matches, the deposit goes to the unmatched queue and
+        // an operator decides.
         if (!empty($candidates)) {
-            // Stage 2: reference number in normalized depositor name
             foreach ($candidates as $candidate) {
                 $ref = mb_strtoupper(mb_convert_kana((string) $candidate['reference_number'], 'as'));
                 if ($ref !== '' && mb_strpos($normalizedDepositor, $ref) !== false) {
                     $matched = $candidate;
                     break;
                 }
-            }
-
-            // Stage 3: single-candidate fallback
-            if ($matched === null && count($candidates) === 1) {
-                $matched = $candidates[0];
             }
         }
 

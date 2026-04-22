@@ -866,16 +866,34 @@ input::placeholder, textarea::placeholder { color: var(--fg-4); }
     color: var(--fg-4);
 }
 
-/* ── Flash Messages ─────────────────────────────────────────────────────── */
+/* ── Flash Messages ───────────────────────────────────────────────────────
+ * Rendered as floating toasts at the top of the viewport so they never
+ * push the page content down/up when they appear or auto-dismiss — the
+ * previous "collapse height to 0" keyframe caused a noticeable upward
+ * shift of the entire page as the flash disappeared.
+ */
 .flash, .alert {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2000;
+    min-width: 280px;
+    max-width: 560px;
     padding: 12px 16px;
     border-radius: var(--r-md);
     font-size: 13px;
-    margin-bottom: 20px;
     display: flex;
     align-items: flex-start;
     gap: 10px;
     border: 1px solid;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    animation: flashSlideIn 0.25s ease-out;
+}
+
+@keyframes flashSlideIn {
+    from { opacity: 0; transform: translate(-50%, -16px); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
 }
 
 .flash--success, .alert-success { background: var(--success-subtle); color: var(--success); border-color: rgba(16, 185, 129, 0.2); }
@@ -1067,15 +1085,18 @@ canvas#revenueChart { max-height: 220px; }
 
 .bg-dark, .navbar-dark { background: var(--bg-1) !important; }
 
-/* Auto dismiss flash */
+/* Auto dismiss flash.
+ * Because the flash is position:fixed, fading its opacity + sliding it
+ * up away from the viewport does not reflow any page content.  After
+ * the animation completes we remove the element from the DOM via JS
+ * (see partials/flash.php) so it doesn't intercept clicks. */
 .alert-auto-dismiss {
-    animation: fadeOutAlert 5s forwards;
+    animation: flashSlideIn 0.25s ease-out, fadeOutAlert 0.4s ease-in 4.6s forwards;
 }
 
 @keyframes fadeOutAlert {
-    0%   { opacity: 1; }
-    80%  { opacity: 1; }
-    100% { opacity: 0; height: 0; padding: 0; margin: 0; overflow: hidden; }
+    from { opacity: 1; transform: translate(-50%, 0); }
+    to   { opacity: 0; transform: translate(-50%, -16px); }
 }
 
 /* ── Legacy helper for existing templates ───────────────────────────────── */

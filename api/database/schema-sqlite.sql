@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS bank_accounts (
     scrape_last_error_at TEXT DEFAULT NULL,
     scrape_last_error_message TEXT DEFAULT NULL,
     scrape_consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    current_balance INTEGER DEFAULT NULL,
+    balance_updated_at TEXT DEFAULT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now'))
 );

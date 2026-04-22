@@ -55,7 +55,8 @@ class ScraperController
                 SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
                 COUNT(*) as total
              FROM scraper_tasks
-             WHERE created_at >= date('now', '-7 days')"
+             WHERE created_at >= ?",
+            [date('Y-m-d 00:00:00', strtotime('-7 days'))]
         );
 
         View::render('scraper/index', [

@@ -5,9 +5,15 @@ $csrf = Auth::csrfToken();
 $canCancel = $link['status'] === 'pending';
 $canMatch  = $link['status'] === 'pending' && $deposit === null;
 
-// Public payment page URL (what the customer opens)
-// API runs on port 8000 by convention; admin on 8001. Adjust API base URL via env if needed.
-$apiBase = rtrim((string) (getenv('B_PAY_API_BASE_URL') ?: 'http://localhost:8000'), '/');
+// Public payment page URL (what the customer opens).  Prefer the shared
+// config — PAY_PAGE_URL in the API .env already points at the production
+// host; the legacy B_PAY_API_BASE_URL env is kept as a manual override for
+// local dev, and the old localhost:8000 default is gone (it was leaking
+// into production-facing URLs).
+$apiBase = rtrim(
+    (string) (getenv('B_PAY_API_BASE_URL') ?: config('pay_page.url', 'https://b-pay.ink')),
+    '/'
+);
 $paymentUrl = $apiBase . '/p/' . $link['token'];
 $justCreated = isset($_GET['created']) && $_GET['created'] === '1';
 ?>
@@ -369,6 +375,27 @@ function bpShareNative() {
                     <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
                     <button type="submit" class="btn btn--danger btn--sm" style="width:100%;">
                         <i class="bi bi-x-circle"></i>キャンセル
+                    </button>
+                </form>
+                <?php endif; ?>
+
+                <?php
+                // Delete is allowed whenever the row is NOT confirmed and has
+                // no matched deposit.  Controller enforces the same rules;
+                // here we just decide whether to render the button at all.
+                $canDelete = $link['status'] !== 'confirmed' && empty($deposit);
+                ?>
+                <?php if ($canDelete): ?>
+                <?php
+                $confirmMsg = $link['link_type'] === 'template'
+                    ? 'このテンプレートと、そこから発行された全ての子リンクを完全に削除します。よろしいですか？（入金確認済みの子リンクがある場合はサーバー側で拒否されます）'
+                    : 'この決済リンクを完全に削除します。よろしいですか？この操作は取り消せません。';
+                ?>
+                <form method="POST" action="/payments/<?= htmlspecialchars($link['id'], ENT_QUOTES, 'UTF-8') ?>/delete"
+                      onsubmit="return confirm(<?= htmlspecialchars(json_encode($confirmMsg), ENT_QUOTES, 'UTF-8') ?>)">
+                    <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
+                    <button type="submit" class="btn btn--ghost btn--sm" style="width:100%;color:var(--danger);">
+                        <i class="bi bi-trash"></i>削除
                     </button>
                 </form>
                 <?php endif; ?>

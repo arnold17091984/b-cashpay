@@ -47,10 +47,14 @@ class ScraperBrowser:
 
     Args:
         bank_id: The bank_accounts.id value; used to namespace session files.
-        headless: Whether to run Chromium in headless mode.
+        headless: Whether to run Chromium in headless mode.  Defaults to
+            False because bank login pages (Rakuten in particular) detect
+            headless Chromium and refuse to render the login form.  On
+            servers without a display, the systemd wrapper runs the runner
+            under xvfb-run so a "visible" browser still works.
     """
 
-    def __init__(self, bank_id: int, headless: bool = True) -> None:
+    def __init__(self, bank_id: int, headless: bool = False) -> None:
         self.bank_id = bank_id
         self.headless = headless
 

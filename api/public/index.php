@@ -27,12 +27,47 @@ load_env(dirname(__DIR__) . '/.env');
 // Set JST timezone globally
 date_default_timezone_set('Asia/Tokyo');
 
-// ── CORS ──────────────────────────────────────────────────────────────────────
+// ── Security headers (apply to every response) ────────────────────────────────
+// HSTS tells browsers to always use TLS for this host for a year.
+// frame-ancestors blocks clickjacking on the payment + confirmed pages.
+// no-referrer keeps the /p/{token} URL (a capability) out of third-party
+// Referer headers when customers click outbound links on the page.
+// CSP is conservative: self-hosted scripts/styles/images only + the one
+// external font CDN (fonts.googleapis.com, rsms.me) the payment page uses.
+header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('Referrer-Policy: no-referrer');
+header(
+    "Content-Security-Policy: "
+    . "default-src 'self'; "
+    . "script-src 'self' 'unsafe-inline'; "
+    . "style-src 'self' 'unsafe-inline' https://rsms.me https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+    . "font-src 'self' https://rsms.me https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
+    . "img-src 'self' data:; "
+    . "connect-src 'self'; "
+    . "frame-ancestors 'none'"
+);
 
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Authorization, Content-Type, X-BCashPay-Scraper-Signature');
-header('Access-Control-Max-Age: 86400');
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// Restrict to first-party origins.  The public status-poll and payment-page
+// routes are same-origin only (served from b-pay.ink itself), and the admin
+// dashboard calls api.*.b-pay.ink routes from admin.b-pay.ink.  Third-party
+// cross-origin access to authenticated API routes is not a supported flow,
+// so reflecting the wildcard origin would widen the attack surface for no
+// legitimate benefit.
+$allowedOrigins = [
+    'https://b-pay.ink',
+    'https://admin.b-pay.ink',
+];
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if ($origin !== '' && in_array($origin, $allowedOrigins, true)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Vary: Origin');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Authorization, Content-Type, X-BCashPay-Scraper-Signature');
+    header('Access-Control-Max-Age: 86400');
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -92,11 +127,27 @@ function dispatch(string $method, string $path): void
         return;
     }
 
+    // ── Payment page — customer amount submit (awaiting_input + template) ─────
+    if ($method === 'POST' && preg_match('#^/p/([A-Za-z0-9]{32})/submit$#', $path, $m)) {
+        $ctrl = new \BCashPay\Controllers\PaymentPageController();
+        $ctrl->submit($m[1]);
+        return;
+    }
+
     // ── Public status poll — rate-limited ─────────────────────────────────────
     if ($method === 'GET' && preg_match('#^/api/v1/pay/([A-Za-z0-9]{32})/status$#', $path, $m)) {
         rateLimitPublic();
         $ctrl = new \BCashPay\Controllers\PaymentPageController();
         $ctrl->pollStatus($m[1]);
+        return;
+    }
+
+    // ── Telegram webhook — secret-token auth (NOT HMAC) ───────────────────────
+    // Telegram cannot compute our HMAC, so this route ships with its own
+    // `X-Telegram-Bot-Api-Secret-Token` verification inside the controller.
+    // It must be matched BEFORE the generic /api/internal/ block below.
+    if ($method === 'POST' && $path === '/api/internal/telegram/webhook') {
+        (new \BCashPay\Controllers\TelegramWebhookController())->handle();
         return;
     }
 
@@ -108,6 +159,10 @@ function dispatch(string $method, string $path): void
 
         if ($method === 'POST' && $path === '/api/internal/scraper/deposits') {
             $ctrl->receiveDeposit();
+            return;
+        }
+        if ($method === 'POST' && $path === '/api/internal/scraper/status') {
+            $ctrl->receiveStatus();
             return;
         }
         if ($method === 'GET' && $path === '/api/internal/scraper/tasks') {
