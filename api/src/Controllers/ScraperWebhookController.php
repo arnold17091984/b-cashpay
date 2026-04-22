@@ -375,11 +375,19 @@ class ScraperWebhookController
         }
 
         // Stage 1: candidate set — status=pending, same bank, created <= 14
-        // days ago, and the candidate must have been created at or before the
-        // deposit date (a deposit cannot belong to a payment_link that did
-        // not yet exist when the money arrived — this stops old deposits
-        // that are still in the bank history from being attributed to
-        // newly-created links).
+        // days ago, and the candidate must have been created on or before
+        // the deposit's calendar day (a deposit cannot belong to a link
+        // that did not yet exist when the money arrived — this stops old
+        // deposits in bank history from being attributed to newly-created
+        // links).
+        //
+        // The upper bound is compared at the **date** level rather than the
+        // timestamp level because Rakuten's transaction list exposes only
+        // the date (no clock time), so the scraper hydrates it to 00:00 JST.
+        // A strict timestamp compare would exclude every link created after
+        // midnight on the same day the deposit posted — i.e. the common
+        // case of "customer creates a link at 16:24 JST and pays the same
+        // afternoon".
         $candidates = $this->db->fetchAll(
             'SELECT pl.id, pl.reference_number, pl.customer_name,
                     pl.callback_url, pl.amount,
@@ -391,7 +399,7 @@ class ScraperWebhookController
                AND pl.amount = ?
                AND pl.status = ?
                AND pl.created_at >= ?
-               AND pl.created_at <= ?
+               AND DATE(pl.created_at) <= DATE(?)
              ORDER BY pl.created_at DESC',
             [
                 $bankAccountId,
