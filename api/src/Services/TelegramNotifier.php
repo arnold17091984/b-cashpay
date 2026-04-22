@@ -162,15 +162,58 @@ class TelegramNotifier
         $id        = $this->escapeHtml((string) ($data['id'] ?? '-'));
         $depositor = $this->escapeHtml((string) ($data['depositor_name'] ?? '-'));
 
+        $balanceLine = $this->formatBalanceLine(
+            isset($data['bank_account_id']) ? (int) $data['bank_account_id'] : null
+        );
+
         $msg = "\xE2\x9C\x85 <b>入金確認完了</b>\n\n"
             . "ID: <code>{$id}</code>\n"
             . "お客様名: {$name}\n"
             . "振込人名: {$depositor}\n"
             . "金額: {$amount} JPY\n"
             . "参照番号: <code>{$ref}</code>\n"
-            . "確認日時: " . now_jst();
+            . "確認日時: " . now_jst()
+            . $balanceLine;
 
         return $this->send($msg, $data['id'] ?? null);
+    }
+
+    /**
+     * Build the "現在の口座残高" trailer for confirmation messages.
+     *
+     * Returns an empty string (no trailer) when the bank_account_id is
+     * missing or the row cannot be read — the caller should never fail
+     * over a decorative line.  Any sub-hour staleness is called out so
+     * operators don't mistake an old cached value for the live balance.
+     */
+    private function formatBalanceLine(?int $bankAccountId): string
+    {
+        if ($bankAccountId === null || $bankAccountId <= 0) {
+            return '';
+        }
+
+        $row = null;
+        try {
+            $row = $this->db->fetchOne(
+                'SELECT current_balance, balance_updated_at
+                   FROM bank_accounts
+                  WHERE id = ?
+                  LIMIT 1',
+                [$bankAccountId]
+            );
+        } catch (\Throwable) {
+            // fall through — row stays null and we return '' below.
+        }
+
+        if ($row === null || !isset($row['current_balance'])) {
+            return '';
+        }
+
+        $balance = number_format((int) $row['current_balance']);
+        $updatedAt = (string) ($row['balance_updated_at'] ?? '');
+        $updatedLabel = $updatedAt !== '' ? " <i>(at {$this->escapeHtml($updatedAt)})</i>" : '';
+
+        return "\n口座残高: {$balance} JPY{$updatedLabel}";
     }
 
     /**

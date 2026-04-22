@@ -539,6 +539,7 @@ class PaymentLinkService
                 'amount'           => (int) $paymentLink['amount'],
                 'reference_number' => $paymentLink['reference_number'],
                 'depositor_name'   => $deposit['depositor_name'],
+                'bank_account_id'  => (int) $paymentLink['bank_account_id'],
             ]);
         } catch (\Throwable) {
             // Non-fatal
